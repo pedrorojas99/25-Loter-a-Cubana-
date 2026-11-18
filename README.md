@@ -11,7 +11,9 @@ Aplicación Android nativa desarrollada con Kotlin y Jetpack Compose.
 ## Estado
 - [x] Estructura Android inicial.
 - [x] Pantalla principal con estilo claro y colores suaves.
+- [x] Sección inicial de billetera para usuarios con opciones de depósito y retiro (interfaz solamente).
 - [ ] Integración verificada con fuente oficial de resultados.
+- [ ] Integración de pagos, verificación de identidad, controles antifraude y cumplimiento legal; no activar movimientos reales hasta completar estas verificaciones.
 - [ ] Persistencia local y sincronización automática.
 - [ ] Historial, métricas y Charada.
 - [ ] Aplicación de administración y control de acceso.
