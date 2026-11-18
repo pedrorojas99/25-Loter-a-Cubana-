@@ -1,7 +1,8 @@
 package com.veinticinco.loteriacubana.data
 
-import java.time.LocalDate
-import java.time.format.DateTimeParseException
+import java.text.ParsePosition
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 /**
  * Resultado oficial de un sorteo. Los dígitos se guardan como String:
@@ -27,10 +28,10 @@ data class DrawResult(
     val verified: Boolean = false
 ) {
     init {
-        try {
-            LocalDate.parse(drawDate)
-        } catch (_: DateTimeParseException) {
-            throw IllegalArgumentException("drawDate debe ser una fecha real en formato yyyy-MM-dd")
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false }
+        val parsedDate = dateFormat.parse(drawDate, ParsePosition(0))
+        require(parsedDate != null && dateFormat.format(parsedDate) == drawDate) {
+            "drawDate debe ser una fecha real en formato yyyy-MM-dd"
         }
         require(winningNumbers.length == game.digitCount && winningNumbers.all { it in '0'..'9' }) {
             "El resultado debe contener exactamente ${game.digitCount} dígitos ASCII"
