@@ -1,5 +1,8 @@
 package com.veinticinco.loteriacubana.data
 
+import java.time.LocalDate
+import java.time.format.DateTimeParseException
+
 /**
  * Resultado oficial de un sorteo. Los dígitos se guardan como String:
  * nunca convertirlos a Int, para preservar ceros iniciales y el orden publicado.
@@ -24,14 +27,16 @@ data class DrawResult(
     val verified: Boolean = false
 ) {
     init {
-        require(drawDate.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) {
-            "drawDate debe usar yyyy-MM-dd"
+        try {
+            LocalDate.parse(drawDate)
+        } catch (_: DateTimeParseException) {
+            throw IllegalArgumentException("drawDate debe ser una fecha real en formato yyyy-MM-dd")
         }
-        require(winningNumbers.length == game.digitCount && winningNumbers.all(Char::isDigit)) {
-            "El resultado debe contener exactamente ${game.digitCount} dígitos"
+        require(winningNumbers.length == game.digitCount && winningNumbers.all { it in '0'..'9' }) {
+            "El resultado debe contener exactamente ${game.digitCount} dígitos ASCII"
         }
-        require(fireball == null || (fireball.length == 1 && fireball.all(Char::isDigit))) {
-            "Fireball debe ser un solo dígito"
+        require(fireball == null || (fireball.length == 1 && fireball[0] in '0'..'9')) {
+            "Fireball debe ser un solo dígito ASCII"
         }
     }
 
