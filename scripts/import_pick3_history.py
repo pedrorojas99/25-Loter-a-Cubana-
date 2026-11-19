@@ -33,6 +33,8 @@ def visual_lines(page):
         yield " ".join(w["text"] for w in sorted(group["words"], key=lambda w: float(w["x0"])))
 
 def main():
+    # Sanity-check the exact cell grammar seen in Florida Lottery PDF table rows.
+    assert ROW.search("11/11/26 E 0 - 5 - 2 FB 1 10/16/26 M 9 - 5 - 2 FB 7")
     response = requests.get(
         OFFICIAL_URL,
         timeout=(30, 180),
