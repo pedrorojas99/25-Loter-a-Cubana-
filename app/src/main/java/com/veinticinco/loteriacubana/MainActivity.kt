@@ -340,9 +340,14 @@ private fun Inicio(abrirJugar: () -> Unit) {
     var resultados by remember { mutableStateOf<List<ResultadoPublico>?>(null) }
     var errorConexion by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
-        SupabaseRepository.cargarResultados { respuesta ->
-            respuesta.onSuccess { resultados = it; errorConexion = null }
-                .onFailure { errorConexion = "No se pudo conectar. Se intentará de nuevo al abrir la pantalla." }
+        // Verifica los sorteos recientes al abrir Inicio y luego carga el historial guardado.
+        SupabaseRepository.cargarUltimosDiezDias { actualizacion ->
+            SupabaseRepository.cargarResultados { respuesta ->
+                respuesta.onSuccess {
+                    resultados = it
+                    errorConexion = if (actualizacion.isFailure) "No se pudo verificar el sorteo más reciente; se muestran los resultados guardados." else null
+                }.onFailure { errorConexion = "No se pudo conectar. Se intentará de nuevo al abrir la pantalla." }
+            }
         }
     }
     Column(
