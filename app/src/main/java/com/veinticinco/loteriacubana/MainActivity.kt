@@ -825,7 +825,7 @@ private fun Sorteo(nombre: String, modifier: Modifier = Modifier) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(nombre, color = Azul, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Text("Mediodía y noche", color = Suave, fontSize = 12.sp)
-            Text("Pendiente de conexión", color = Suave, fontSize = 11.sp)
+            Text("Resultados oficiales de Florida Lottery", color = Suave, fontSize = 11.sp)
         }
     }
 }
