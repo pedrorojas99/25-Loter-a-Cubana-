@@ -124,7 +124,7 @@ private fun Aplicacion() {
                     NavigationBar(containerColor = Color.White) {
                         NavigationBarItem(selected = pantalla == Pantalla.INICIO || pantalla == Pantalla.JUGAR, onClick = { pantalla = Pantalla.INICIO }, icon = { Icon(Icons.Filled.Home, contentDescription = "Inicio") }, label = { Text("Inicio") })
                         NavigationBarItem(selected = pantalla == Pantalla.ESTADISTICAS, onClick = { pantalla = Pantalla.ESTADISTICAS }, icon = { Icon(Icons.Filled.BarChart, contentDescription = "Estadísticas") }, label = { Text("Estadísticas") })
-                        NavigationBarItem(selected = pantalla == Pantalla.HISTORIAL, onClick = { pantalla = Pantalla.HISTORIAL }, icon = { Icon(Icons.Filled.History, contentDescription = "Historial") }, label = { Text("Historial") })
+                        NavigationBarItem(selected = pantalla == Pantalla.HISTORIAL, onClick = { pantalla = Pantalla.HISTORIAL }, icon = { Icon(Icons.Filled.History, contentDescription = "Historial") }, label = { Text("Historial de números") })
                         NavigationBarItem(selected = pantalla == Pantalla.BILLETERA, onClick = { pantalla = Pantalla.BILLETERA }, icon = { Icon(Icons.Filled.AccountBalanceWallet, contentDescription = "Billetera") }, label = { Text("Billetera") })
                     }
                 }
@@ -416,20 +416,63 @@ private fun Historial() {
         }
     }
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Historial", color = Tinta, fontSize = 27.sp, fontWeight = FontWeight.Bold)
+        Text("Historial de números", color = Tinta, fontSize = 25.sp, fontWeight = FontWeight.Bold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = seccion == "Sorteos", onClick = { seccion = "Sorteos" }, label = { Text("Sorteos") })
             FilterChip(selected = seccion == "Mis jugadas", onClick = { seccion = "Mis jugadas" }, label = { Text("Mis jugadas") })
         }
         if (seccion == "Sorteos") {
-            Text("Resultados verificados de Florida Lottery · Miami", color = Suave)
+            Text("Resultados oficiales de Florida Lottery · Miami", color = Suave)
+            Text("Resultados a partir del 2025", color = Azul, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            var fechaBusqueda by remember { mutableStateOf("") }
+            var fechaAplicada by remember { mutableStateOf<String?>(null) }
+            OutlinedTextField(
+                value = fechaBusqueda,
+                onValueChange = { valor -> if (valor.length <= 10 && valor.all { it.isDigit() || it == '-' }) fechaBusqueda = valor },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Buscar por fecha (AAAA-MM-DD)") },
+                placeholder = { Text("2025-01-25") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = {
+                    val parsed = runCatching {
+                        val format = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false }
+                        val date = format.parse(fechaBusqueda)
+                        require(date != null && format.format(date) == fechaBusqueda && fechaBusqueda >= "2025-01-01")
+                        fechaBusqueda
+                    }.getOrNull()
+                    if (parsed != null) {
+                        fechaAplicada = parsed
+                        resultados = null
+                        errorConexion = null
+                        SupabaseRepository.cargarResultados(parsed) { respuesta ->
+                            respuesta.onSuccess { resultados = it; errorConexion = null }
+                                .onFailure { errorConexion = "No se pudo buscar esa fecha. Comprueba tu conexión." }
+                        }
+                    } else {
+                        errorConexion = "Introduce una fecha válida desde 2025-01-01 (AAAA-MM-DD)."
+                    }
+                }, modifier = Modifier.weight(1f)) { Text("Buscar fecha") }
+                OutlinedButton(onClick = {
+                    fechaBusqueda = ""
+                    fechaAplicada = null
+                    resultados = null
+                    errorConexion = null
+                    SupabaseRepository.cargarResultados { respuesta ->
+                        respuesta.onSuccess { resultados = it; errorConexion = null }
+                            .onFailure { errorConexion = "No se pudieron cargar los sorteos. Comprueba tu conexión." }
+                    }
+                }, modifier = Modifier.weight(1f)) { Text("Ver todos") }
+            }
             when {
                 errorConexion != null -> Text(errorConexion!!, color = Suave, fontSize = 13.sp)
                 resultados == null -> Text("Cargando historial desde la nube…", color = Suave, fontSize = 13.sp)
                 resultados!!.isEmpty() -> Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
                     Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("La conexión está lista", color = Tinta, fontWeight = FontWeight.Bold)
-                        Text("Todavía no hay sorteos verificados en la base de datos. Cuando se publiquen y se sincronicen, aparecerán aquí.", color = Suave, fontSize = 13.sp)
+                        Text(if (fechaAplicada != null) "No hay resultados verificados para $fechaAplicada." else "Todavía no hay sorteos verificados guardados desde 2025. Cuando se sincronicen, aparecerán aquí.", color = Suave, fontSize = 13.sp)
                     }
                 }
                 else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
