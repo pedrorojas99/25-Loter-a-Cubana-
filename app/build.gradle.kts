@@ -12,8 +12,8 @@ android {
         applicationId = "com.veinticinco.loteriacubana"
         minSdk = 23
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SUPABASE_URL", "\"https://pnnujsvixsglydhafzih.supabase.co\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_QneyznGxBERNLMlJ2JHDYQ_0LQFJ8Gt\"")
