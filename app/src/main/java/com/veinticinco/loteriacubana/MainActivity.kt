@@ -45,7 +45,7 @@ private val Azul = Color(0xFF648CA6)
 private enum class Pantalla { INICIO, ESTADISTICAS, HISTORIAL, BILLETERA, JUGAR }
 private enum class OperacionBilletera { DEPOSITO, RETIRO }
 private enum class TipoJugada(val etiqueta: String, val cifras: Int) {
-    NUMERO("Número", 2), CENTENA("Centena", 3)
+    NUMERO("Fijo", 2), CENTENA("Centena", 3)
 }
 private enum class Turno(val etiqueta: String) { MEDIODIA("Mediodía"), NOCHE("Noche") }
 
