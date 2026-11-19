@@ -65,7 +65,7 @@ object SupabaseRepository {
                 while (true) {
                     var endpoint = BuildConfig.SUPABASE_URL.trimEnd('/') +
                         "/rest/v1/lottery_draws?select=draw_date,game,period,winning_number,fireball" +
-                        "&verified=eq.true"
+                        "&verified=eq.true&game=eq.PICK_3"
                     endpoint += if (!fecha.isNullOrBlank()) "&draw_date=eq.$fecha" else "&draw_date=gte.2025-01-01"
                     endpoint += "&order=draw_date.desc,published_at.desc,game.asc,period.asc&limit=$PAGE_SIZE"
 
