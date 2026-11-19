@@ -4,6 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import com.veinticinco.loteriacubana.BuildConfig
 import org.json.JSONArray
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -14,6 +15,9 @@ data class ResultadoPublico(
     val numero: String,
     val fireball: String?
 )
+
+
+data class JugadaRemota(val fecha: String, val selecciones: List<String>)
 
 object SupabaseRepository {
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -209,4 +213,94 @@ object SupabaseRepository {
             }
         }.start()
     }
+
+    // Guarda el boleto y todas sus selecciones en una sola transacción PostgreSQL.
+    fun guardarBoleto(session: UserSession, selecciones: List<String>, callback: (Result<String>) -> Unit) {
+        Thread {
+            try {
+                require(selecciones.isNotEmpty() && selecciones.size <= 30) { "El boleto debe tener entre 1 y 30 selecciones." }
+                val payload = JSONArray()
+                selecciones.forEach { linea ->
+                    val match = Regex("^(Fijo|Centena): ([0-9]{2,3}) · (Mediodía|Noche)$").matchEntire(linea)
+                        ?: throw IllegalArgumentException("Una selección del boleto no tiene un formato válido.")
+                    val tipo = match.groupValues[1]
+                    val numero = match.groupValues[2]
+                    val turno = match.groupValues[3]
+                    if ((tipo == "Fijo" && numero.length != 2) || (tipo == "Centena" && numero.length != 3)) {
+                        throw IllegalArgumentException("La cantidad de cifras no coincide con el tipo de jugada.")
+                    }
+                    payload.put(JSONObject()
+                        .put("game", "PICK_3")
+                        .put("period", if (turno == "Mediodía") "MIDDAY" else "EVENING")
+                        .put("bet_type", if (tipo == "Fijo") "NUMBER" else "CENTENA")
+                        .put("selection", numero))
+                }
+                val connection = (URL(BuildConfig.SUPABASE_URL.trimEnd('/') + "/rest/v1/rpc/save_ticket_with_selections").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 15000
+                    readTimeout = 20000
+                    doOutput = true
+                    setRequestProperty("apikey", BuildConfig.SUPABASE_PUBLISHABLE_KEY)
+                    setRequestProperty("Authorization", "Bearer ${session.accessToken}")
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Accept", "application/json")
+                }
+                try {
+                    val body = JSONObject().put("p_ticket_name", "Boleto de prueba").put("p_selections", payload)
+                    connection.outputStream.bufferedWriter(Charsets.UTF_8).use { it.write(body.toString()) }
+                    val status = connection.responseCode
+                    val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                    val response = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                    if (status !in 200..299) throw IllegalStateException("No se pudo guardar el boleto (HTTP $status): " + runCatching { JSONObject(response).optString("message") }.getOrDefault(""))
+                    mainHandler.post { callback(Result.success(response.trim().trim('"'))) }
+                } finally { connection.disconnect() }
+            } catch (error: Exception) {
+                mainHandler.post { callback(Result.failure(error)) }
+            }
+        }.start()
+    }
+
+    // Cada usuario solo recibe sus propios boletos; la RLS se aplica con su JWT.
+    fun cargarMisBoletos(session: UserSession, callback: (Result<List<JugadaRemota>>) -> Unit) {
+        Thread {
+            try {
+                val endpoint = BuildConfig.SUPABASE_URL.trimEnd('/') +
+                    "/rest/v1/tickets?select=id,ticket_name,created_at,ticket_selections(game,period,bet_type,selection)&order=created_at.desc&limit=100"
+                val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 15000
+                    readTimeout = 20000
+                    setRequestProperty("apikey", BuildConfig.SUPABASE_PUBLISHABLE_KEY)
+                    setRequestProperty("Authorization", "Bearer ${session.accessToken}")
+                    setRequestProperty("Accept", "application/json")
+                }
+                try {
+                    val status = connection.responseCode
+                    val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                    val response = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                    if (status !in 200..299) throw IllegalStateException("No se pudieron cargar tus boletos (HTTP $status).")
+                    val array = JSONArray(response)
+                    val tickets = (0 until array.length()).mapNotNull { index ->
+                        val row = array.optJSONObject(index) ?: return@mapNotNull null
+                        val selections = row.optJSONArray("ticket_selections") ?: JSONArray()
+                        val lines = (0 until selections.length()).mapNotNull { i ->
+                            val item = selections.optJSONObject(i) ?: return@mapNotNull null
+                            val type = if (item.optString("bet_type") == "NUMBER") "Fijo" else "Centena"
+                            val turn = if (item.optString("period") == "MIDDAY") "Mediodía" else "Noche"
+                            val number = item.optString("selection")
+                            if (number.isBlank()) null else "$type: $number · $turn"
+                        }
+                        if (lines.isEmpty()) null else JugadaRemota(
+                            row.optString("created_at").replace("T", " ").take(16),
+                            lines
+                        )
+                    }
+                    mainHandler.post { callback(Result.success(tickets)) }
+                } finally { connection.disconnect() }
+            } catch (error: Exception) {
+                mainHandler.post { callback(Result.failure(error)) }
+            }
+        }.start()
+    }
+
 }
