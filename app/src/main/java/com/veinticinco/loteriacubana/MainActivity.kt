@@ -392,12 +392,21 @@ private fun Historial() {
     val jugadas = remember { cargarBoletos(context) }
     var resultados by remember { mutableStateOf<List<ResultadoPublico>?>(null) }
     var errorConexion by remember { mutableStateOf<String?>(null) }
+    var cargandoBusqueda by remember { mutableStateOf(false) }
+    var tipoBusqueda by remember { mutableStateOf("Fijo") }
+    var numeroBusqueda by remember { mutableStateOf("") }
+    var coincidencias by remember { mutableStateOf<List<ResultadoPublico>?>(null) }
+    var busquedaRealizada by remember { mutableStateOf(false) }
+    var fechaBusqueda by remember { mutableStateOf("") }
+    var fechaAplicada by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(Unit) {
         SupabaseRepository.cargarUltimosDiezDias { respuesta ->
             respuesta.onSuccess { resultados = it; errorConexion = null }
                 .onFailure { errorConexion = "No se pudieron cargar los sorteos. Comprueba tu conexión a Internet." }
         }
     }
+
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Historial de números", color = Tinta, fontSize = 25.sp, fontWeight = FontWeight.Bold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -405,15 +414,13 @@ private fun Historial() {
             FilterChip(selected = seccion == "Mis jugadas", onClick = { seccion = "Mis jugadas" }, label = { Text("Mis jugadas") })
         }
         if (seccion == "Sorteos") {
-            Text("Últimos 10 días · Resultados oficiales de Florida Lottery", color = Suave)
-            Text("Resultados a partir del 2025", color = Azul, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            var fechaBusqueda by remember { mutableStateOf("") }
-            var fechaAplicada by remember { mutableStateOf<String?>(null) }
+            Text("Resultados oficiales de Florida Lottery · Desde 2025", color = Suave)
+            Text("Buscar por fecha", color = Tinta, fontWeight = FontWeight.SemiBold)
             OutlinedTextField(
                 value = fechaBusqueda,
                 onValueChange = { valor -> if (valor.length <= 10 && valor.all { it.isDigit() || it == '-' }) fechaBusqueda = valor },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Buscar por fecha (AAAA-MM-DD)") },
+                label = { Text("Fecha (AAAA-MM-DD)") },
                 placeholder = { Text("2025-01-25") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
@@ -430,35 +437,134 @@ private fun Historial() {
                         fechaAplicada = parsed
                         resultados = null
                         errorConexion = null
+                        coincidencias = null
+                        busquedaRealizada = false
                         SupabaseRepository.buscarResultadoOficial(parsed) { respuesta ->
                             respuesta.onSuccess { resultados = it; errorConexion = null }
                                 .onFailure { errorConexion = "No se pudo buscar esa fecha. Comprueba tu conexión." }
                         }
-                    } else {
-                        errorConexion = "Introduce una fecha válida desde 2025-01-01 (AAAA-MM-DD)."
-                    }
+                    } else errorConexion = "Introduce una fecha válida desde 2025-01-01 (AAAA-MM-DD)."
                 }, modifier = Modifier.weight(1f)) { Text("Buscar fecha") }
                 OutlinedButton(onClick = {
                     fechaBusqueda = ""
                     fechaAplicada = null
-                    resultados = null
                     errorConexion = null
+                    resultados = null
+                    coincidencias = null
+                    busquedaRealizada = false
                     SupabaseRepository.cargarUltimosDiezDias { respuesta ->
                         respuesta.onSuccess { resultados = it; errorConexion = null }
                             .onFailure { errorConexion = "No se pudieron cargar los sorteos. Comprueba tu conexión." }
                     }
                 }, modifier = Modifier.weight(1f)) { Text("Últimos 10 días") }
             }
+
+            Divider(color = Fondo)
+            Text("Buscar historial de un número", color = Tinta, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("Encuentra todas las fechas en que apareció desde el 1 de enero de 2025.", color = Suave, fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = tipoBusqueda == "Fijo", onClick = {
+                    tipoBusqueda = "Fijo"; numeroBusqueda = ""; coincidencias = null; busquedaRealizada = false
+                }, label = { Text("Fijo · 2 cifras") })
+                FilterChip(selected = tipoBusqueda == "Centena", onClick = {
+                    tipoBusqueda = "Centena"; numeroBusqueda = ""; coincidencias = null; busquedaRealizada = false
+                }, label = { Text("Centena · 3 cifras") })
+            }
+            OutlinedTextField(
+                value = numeroBusqueda,
+                onValueChange = { valor ->
+                    val max = if (tipoBusqueda == "Fijo") 2 else 3
+                    if (valor.length <= max && valor.all { it in '0'..'9' }) {
+                        numeroBusqueda = valor
+                        coincidencias = null
+                        busquedaRealizada = false
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(if (tipoBusqueda == "Fijo") "Escribe las 2 cifras" else "Escribe las 3 cifras") },
+                placeholder = { Text(if (tipoBusqueda == "Fijo") "Ej. 25" else "Ej. 025") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            )
+            Text("Los ceros iniciales se conservan. En Fijo se buscan los dos últimos dígitos del Pick 3.", color = Suave, fontSize = 11.sp)
+            Button(
+                onClick = {
+                    val required = if (tipoBusqueda == "Fijo") 2 else 3
+                    if (numeroBusqueda.length != required) {
+                        errorConexion = "Escribe exactamente $required cifras para realizar la búsqueda."
+                    } else {
+                        cargandoBusqueda = true
+                        errorConexion = null
+                        resultados = null
+                        coincidencias = null
+                        busquedaRealizada = false
+                        SupabaseRepository.cargarResultados { respuesta ->
+                            cargandoBusqueda = false
+                            respuesta.onSuccess { todos ->
+                                val objetivo = numeroBusqueda
+                                coincidencias = todos.filter { resultado ->
+                                    if (tipoBusqueda == "Fijo") resultado.numero.takeLast(2) == objetivo
+                                    else resultado.numero == objetivo
+                                }.sortedWith(compareByDescending<ResultadoPublico> { it.fecha }.thenBy { it.turno })
+                                busquedaRealizada = true
+                            }.onFailure {
+                                errorConexion = "No se pudo consultar el historial completo. Comprueba tu conexión."
+                            }
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !cargandoBusqueda
+            ) {
+                if (cargandoBusqueda) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                else Text("Buscar todas las fechas")
+            }
+            if (cargandoBusqueda) Text("Consultando el historial completo desde 2025…", color = Suave, fontSize = 13.sp)
+            if (busquedaRealizada) {
+                val lista = coincidencias.orEmpty()
+                Text("${lista.size} coincidencias para $tipoBusqueda $numeroBusqueda", color = Azul, fontWeight = FontWeight.Bold)
+                if (lista.isEmpty()) {
+                    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
+                        Text("No se encontró ese número en los resultados verificados desde 2025.", Modifier.padding(16.dp), color = Suave, fontSize = 13.sp)
+                    }
+                } else {
+                    Column(
+                        Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        lista.forEach { resultado ->
+                            Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp)) {
+                                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Text(resultado.fecha, color = Tinta, fontWeight = FontWeight.SemiBold)
+                                        Text(if (resultado.turno == "MIDDAY") "Mediodía" else "Noche", color = Suave, fontSize = 12.sp)
+                                    }
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(resultado.numero, color = Azul, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                                        Text(if (tipoBusqueda == "Fijo") "Fijo ${resultado.numero.takeLast(2)}" else "Centena", color = Suave, fontSize = 10.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Divider(color = Fondo)
+            Text("Resultados recientes", color = Tinta, fontWeight = FontWeight.SemiBold)
             when {
-                errorConexion != null -> Text(errorConexion!!, color = Suave, fontSize = 13.sp)
+                errorConexion != null -> Text(errorConexion!!, color = Color(0xFFB45309), fontSize = 13.sp)
                 resultados == null -> Text("Cargando historial desde la nube…", color = Suave, fontSize = 13.sp)
                 resultados!!.isEmpty() -> Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
                     Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("La conexión está lista", color = Tinta, fontWeight = FontWeight.Bold)
-                        Text(if (fechaAplicada != null) "No hay resultados verificados para $fechaAplicada." else "Todavía no hay sorteos verificados guardados desde 2025. Cuando se sincronicen, aparecerán aquí.", color = Suave, fontSize = 13.sp)
+                        Text("Sin resultados para mostrar", color = Tinta, fontWeight = FontWeight.Bold)
+                        Text(if (fechaAplicada != null) "No hay resultados verificados para $fechaAplicada." else "Todavía no hay sorteos verificados guardados desde 2025.", color = Suave, fontSize = 13.sp)
                     }
                 }
-                else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                else -> Column(
+                    Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     resultados!!.groupBy { it.fecha }.forEach { (fecha, sorteos) -> ResultadoDiaCard(fecha, sorteos) }
                 }
             }
