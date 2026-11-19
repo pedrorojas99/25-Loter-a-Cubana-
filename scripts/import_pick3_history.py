@@ -1,80 +1,95 @@
 #!/usr/bin/env python3
-"""Parse the official Florida Lottery Pick 3 PDF through Jina's HTML table view."""
+"""Extract Florida Lottery Pick 3 history from an official PDF while preserving row geometry."""
 import hashlib
+import io
 import json
 import re
 from collections import defaultdict
 from datetime import date, datetime
 
+import pdfplumber
 import requests
-from bs4 import BeautifulSoup
 
 OFFICIAL_URL = "https://files.floridalottery.com/exptkt/p3.pdf"
-READER_URL = "https://r.jina.ai/http://files.floridalottery.com/exptkt/p3.pdf"
+PDF_URLS = [
+    "https://files.floridalottery.com/exptkt/p3.pdf",
+    "https://www.flalottery.com/exptkt/p3.pdf",
+    "https://flalottery.com/exptkt/p3.pdf",
+]
 ROW = re.compile(
     r"(?<!\d)(\d{1,2}/\d{1,2}/\d{2})\s+([ME])\s+"
     r"(\d)\s*-\s*(\d)\s*-\s*(\d)\s+FB\s+(\d)(?!\d)",
     re.IGNORECASE,
 )
 
+def visual_lines(page):
+    words = page.extract_words(x_tolerance=2, y_tolerance=2, keep_blank_chars=False)
+    words.sort(key=lambda w: (float(w["top"]), float(w["x0"])))
+    groups = []
+    for word in words:
+        top = float(word["top"])
+        if not groups or abs(top - groups[-1]["top"]) > 2.2:
+            groups.append({"top": top, "words": [word]})
+        else:
+            groups[-1]["words"].append(word)
+            groups[-1]["top"] = sum(float(w["top"]) for w in groups[-1]["words"]) / len(groups[-1]["words"])
+    for group in groups:
+        yield " ".join(w["text"] for w in sorted(group["words"], key=lambda w: float(w["x0"])))
+
+def fetch_official_pdf():
+    failures = []
+    session = requests.Session()
+    for url in PDF_URLS:
+        try:
+            response = session.get(
+                url,
+                timeout=(20, 90),
+                headers={"User-Agent": "Mozilla/5.0 (compatible; 25LoteriaCubana/1.0)", "Accept": "application/pdf"},
+            )
+            response.raise_for_status()
+            content = response.content
+            if content.startswith(b"%PDF-") and len(content) > 100_000:
+                return content, response.url
+            failures.append(f"{url}: non-PDF response ({len(content)} bytes, {response.headers.get('content-type')})")
+        except Exception as exc:
+            failures.append(f"{url}: {type(exc).__name__}: {str(exc)[:300]}")
+    raise SystemExit("Could not retrieve official PDF from any official host: " + " | ".join(failures))
+
 def main():
-    # Grammar smoke test: the same row shape used in official PDF table cells.
     assert ROW.search("11/11/26 E 0 - 5 - 2 FB 1 10/16/26 M 9 - 5 - 2 FB 7")
-
-    response = requests.get(
-        READER_URL,
-        timeout=(30, 180),
-        headers={
-            "X-Respond-With": "html",
-            "X-No-Cache": "true",
-            "Accept": "text/html",
-            "User-Agent": "25-Loteria-Cubana history importer/1.0",
-        },
-    )
-    response.raise_for_status()
-    document = response.text
-    if len(document) < 10_000:
-        raise SystemExit(f"Official PDF HTML extraction too short: {len(document)} chars; body={document[:500]!r}")
-
-    soup = BeautifulSoup(document, "html.parser")
-    table_rows = soup.find_all("tr")
-    if len(table_rows) < 500:
-        raise SystemExit(
-            f"Reader did not preserve PDF table rows (found {len(table_rows)} tr, "
-            f"{len(document)} chars); refusing to parse flattened text"
-        )
-
+    pdf_bytes, retrieved_url = fetch_official_pdf()
     by_key = {}
-    matched_rows = 0
-    for row_index, table_row in enumerate(table_rows, start=1):
-        cells = table_row.find_all(["td", "th"])
-        row_text = " ".join(cell.get_text(" ", strip=True) for cell in cells)
-        for match in ROW.finditer(re.sub(r"\s+", " ", row_text)):
-            matched_rows += 1
-            draw_day = datetime.strptime(match.group(1), "%m/%d/%y").date()
-            if draw_day < date(2025, 1, 1) or draw_day > date.today():
-                continue
-            period = "MIDDAY" if match.group(2).upper() == "M" else "EVENING"
-            key = (draw_day.isoformat(), period)
-            record = {
-                "draw_date": draw_day.isoformat(),
-                "game": "PICK_3",
-                "period": period,
-                "winning_number": "".join(match.group(i) for i in (3, 4, 5)),
-                "fireball": match.group(6),
-                "source": "Florida Lottery official PICK 3 history PDF",
-                "source_url": OFFICIAL_URL,
-                "published_at": None,
-                "verified": True,
-            }
-            previous = by_key.get(key)
-            if previous is not None and previous != record:
-                raise SystemExit(f"Conflicting official PDF rows for {key} at HTML table row {row_index}")
-            by_key[key] = record
+    matched = 0
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        page_count = len(pdf.pages)
+        for page in pdf.pages:
+            for line in visual_lines(page):
+                for match in ROW.finditer(line):
+                    matched += 1
+                    draw_day = datetime.strptime(match.group(1), "%m/%d/%y").date()
+                    if draw_day < date(2025, 1, 1) or draw_day > date.today():
+                        continue
+                    period = "MIDDAY" if match.group(2).upper() == "M" else "EVENING"
+                    key = (draw_day.isoformat(), period)
+                    record = {
+                        "draw_date": draw_day.isoformat(),
+                        "game": "PICK_3",
+                        "period": period,
+                        "winning_number": "".join(match.group(i) for i in (3, 4, 5)),
+                        "fireball": match.group(6),
+                        "source": "Florida Lottery official PICK 3 history PDF",
+                        "source_url": OFFICIAL_URL,
+                        "published_at": None,
+                        "verified": True,
+                    }
+                    previous = by_key.get(key)
+                    if previous is not None and previous != record:
+                        raise SystemExit(f"Conflicting official PDF rows for {key}")
+                    by_key[key] = record
 
     records = [by_key[k] for k in sorted(by_key)]
     if not records:
-        raise SystemExit(f"No Pick 3 rows parsed from {len(table_rows)} HTML table rows")
+        raise SystemExit(f"No Pick 3 records parsed from {page_count}-page official PDF; matched={matched}")
     dates = sorted({r["draw_date"] for r in records})
     years = defaultdict(int)
     for record in records:
@@ -85,8 +100,6 @@ def main():
         raise SystemExit(f"2025 coverage too low: {years['2025']} draws")
     if years["2026"] < 500:
         raise SystemExit(f"2026 coverage too low: {years['2026']} draws")
-    if dates[-1] < "2026-01-01":
-        raise SystemExit(f"Latest date unexpectedly old: {dates[-1]}")
     if any(not re.fullmatch(r"\d{3}", r["winning_number"]) for r in records):
         raise SystemExit("Invalid Pick 3 number detected")
     if any(not re.fullmatch(r"\d", r["fireball"]) for r in records):
@@ -94,16 +107,17 @@ def main():
 
     payload = {
         "source_url": OFFICIAL_URL,
-        "reader_url": READER_URL,
-        "reader_content_sha256": hashlib.sha256(document.encode("utf-8")).hexdigest(),
-        "reader_table_rows": len(table_rows),
+        "retrieved_from": retrieved_url,
+        "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
+        "pdf_pages": page_count,
         "rows": records,
     }
     with open("pick3_payload.json", "w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
     print(json.dumps({
-        "reader_table_rows": len(table_rows),
-        "matched_pdf_rows": matched_rows,
+        "retrieved_from": retrieved_url,
+        "pdf_pages": page_count,
+        "matched_pdf_rows": matched,
         "records": len(records),
         "by_year": dict(sorted(years.items())),
         "first_date": dates[0],
