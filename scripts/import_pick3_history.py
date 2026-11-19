@@ -101,6 +101,16 @@ def main():
         raise SystemExit("Invalid Pick 3 number detected")
     if any(not re.fullmatch(r"\d", r["fireball"]) for r in records):
         raise SystemExit("Invalid Fireball digit detected")
+    anchors = {
+        ("2026-11-11", "EVENING"): ("052", "1"),
+        ("2026-11-11", "MIDDAY"): ("172", "8"),
+        ("2025-01-01", "EVENING"): ("078", "2"),
+        ("2025-01-01", "MIDDAY"): ("321", "2"),
+    }
+    for key, expected in anchors.items():
+        actual = by_key.get(key)
+        if actual is None or (actual["winning_number"], actual["fireball"]) != expected:
+            raise SystemExit(f"Official PDF integrity anchor failed for {key}")
 
     payload = {
         "source_url": OFFICIAL_URL,
@@ -112,7 +122,7 @@ def main():
     with open("pick3_payload.json", "w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
     print(json.dumps({
-        "retrieved_from": retrieved_url,
+        "retrieval_transport": transport,
         "pdf_pages": page_count,
         "matched_pdf_rows": matched,
         "records": len(records),
