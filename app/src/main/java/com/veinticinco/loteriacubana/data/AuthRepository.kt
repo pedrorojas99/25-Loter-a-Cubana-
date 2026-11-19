@@ -108,6 +108,29 @@ object AuthRepository {
         }.start()
     }
 
+    fun verifySignupCode(context: Context, email: String, token: String, callback: (Result<String>) -> Unit) {
+        Thread {
+            try {
+                val verified = request(
+                    "/auth/v1/verify",
+                    "POST",
+                    JSONObject().put("type", "signup").put("email", email.trim()).put("token", token.trim())
+                )
+                val access = verified.optString("access_token")
+                val refresh = verified.optString("refresh_token")
+                if (access.isNotBlank() && refresh.isNotBlank()) {
+                    val user = verified.optJSONObject("user")
+                    val username = user?.optJSONObject("user_metadata")?.optString("username")
+                        ?.takeIf { !it.isNullOrBlank() } ?: email.substringBefore("@")
+                    save(context, UserSession(username, access, refresh))
+                }
+                mainHandler.post { callback(Result.success("Correo verificado. Ya puedes iniciar sesión.")) }
+            } catch (e: Exception) {
+                mainHandler.post { callback(Result.failure(e)) }
+            }
+        }.start()
+    }
+
     fun sendRecoveryCode(email: String, callback: (Result<String>) -> Unit) {
         Thread {
             try {
