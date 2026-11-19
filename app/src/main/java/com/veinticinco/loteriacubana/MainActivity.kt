@@ -1,6 +1,13 @@
 package com.veinticinco.loteriacubana
 
 import android.os.Bundle
+import android.content.Context
+import android.content.SharedPreferences
+import org.json.JSONArray
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -21,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -35,6 +43,32 @@ private enum class TipoJugada(val etiqueta: String, val cifras: Int) {
     NUMERO("Número", 2), CENTENA("Centena", 3)
 }
 private enum class Turno(val etiqueta: String) { MEDIODIA("Mediodía"), NOCHE("Noche") }
+
+private data class JugadaGuardada(val fecha: String, val selecciones: List<String>)
+
+private fun preferenciasJugada(context: Context): SharedPreferences =
+    context.getSharedPreferences("25_loteria_mis_jugadas", Context.MODE_PRIVATE)
+
+private fun guardarBoleto(context: Context, selecciones: List<String>) {
+    val prefs = preferenciasJugada(context)
+    val registros = JSONArray(prefs.getString("boletos", "[]") ?: "[]")
+    val nuevo = JSONObject().apply {
+        put("fecha", SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date()))
+        put("selecciones", JSONArray(selecciones))
+    }
+    registros.put(nuevo)
+    prefs.edit().putString("boletos", registros.toString()).apply()
+}
+
+private fun cargarBoletos(context: Context): List<JugadaGuardada> {
+    val registros = JSONArray(preferenciasJugada(context).getString("boletos", "[]") ?: "[]")
+    return (0 until registros.length()).mapNotNull { index ->
+        val item = registros.optJSONObject(index) ?: return@mapNotNull null
+        val nums = item.optJSONArray("selecciones") ?: JSONArray()
+        val selecciones = (0 until nums.length()).mapNotNull { nums.optString(it).takeIf { value -> value.isNotBlank() } }
+        if (selecciones.isEmpty()) null else JugadaGuardada(item.optString("fecha"), selecciones)
+    }.reversed()
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -116,13 +150,13 @@ private fun Jugar(volver: () -> Unit) {
     var numero by remember { mutableStateOf("") }
     var aviso by remember { mutableStateOf("") }
     val boleto = remember { mutableStateListOf<String>() }
+    val context = LocalContext.current
     val cifras = tipo.cifras
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        TextButton(onClick = volver) { Text("← Volver al inicio") }
         Text("Crear boleto", color = Tinta, fontSize = 27.sp, fontWeight = FontWeight.Bold)
         Text("Elige el tipo de jugada y el turno del sorteo de Miami.", color = Suave, fontSize = 14.sp)
         Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
@@ -190,7 +224,15 @@ private fun Jugar(volver: () -> Unit) {
                             TextButton(onClick = { boleto.removeAt(index) }) { Text("Quitar") }
                         }
                     }
-                    OutlinedButton(onClick = { boleto.clear(); aviso = "Boleto de prueba limpiado." }, modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = {
+                            guardarBoleto(context, boleto.toList())
+                            boleto.clear()
+                            aviso = "Boleto guardado en Mis jugadas."
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Guardar boleto en Mis jugadas") }
+                    OutlinedButton(onClick = { boleto.clear(); aviso = "Boleto limpiado." }, modifier = Modifier.fillMaxWidth()) {
                         Text("Vaciar boleto")
                     }
                 }
@@ -228,13 +270,42 @@ private fun Estadisticas() {
 
 @Composable
 private fun Historial() {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    val context = LocalContext.current
+    var seccion by remember { mutableStateOf("Sorteos") }
+    val jugadas = remember { cargarBoletos(context) }
+    Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Historial", color = Tinta, fontSize = 27.sp, fontWeight = FontWeight.Bold)
-        Text("Resultados anteriores de Florida Lottery · Miami", color = Suave)
-        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Todavía no hay sorteos guardados", color = Tinta, fontWeight = FontWeight.Bold)
-                Text("Aquí aparecerán Pick 2 y Pick 3, separados por fecha y turno (mediodía y noche), una vez conectada y verificada la fuente oficial.", color = Suave, fontSize = 13.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = seccion == "Sorteos", onClick = { seccion = "Sorteos" }, label = { Text("Sorteos") })
+            FilterChip(selected = seccion == "Mis jugadas", onClick = { seccion = "Mis jugadas" }, label = { Text("Mis jugadas") })
+        }
+        if (seccion == "Sorteos") {
+            Text("Resultados anteriores de Florida Lottery · Miami", color = Suave)
+            Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Todavía no hay sorteos guardados", color = Tinta, fontWeight = FontWeight.Bold)
+                    Text("Aquí aparecerán Pick 2 y Pick 3, separados por fecha y turno, cuando se conecte la fuente oficial.", color = Suave, fontSize = 13.sp)
+                }
+            }
+        } else {
+            Text("Boletos guardados en este teléfono", color = Suave)
+            if (jugadas.isEmpty()) {
+                Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
+                    Text("Todavía no tienes boletos guardados. Crea un boleto desde Inicio y pulsa «Guardar boleto en Mis jugadas».", Modifier.padding(18.dp), color = Suave, fontSize = 13.sp)
+                }
+            } else {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("${jugadas.size} boletos guardados", color = Azul, fontWeight = FontWeight.SemiBold)
+                    jugadas.forEachIndexed { index, jugada ->
+                        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
+                            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Text("Boleto #${jugadas.size - index}", color = Tinta, fontWeight = FontWeight.Bold)
+                                Text(jugada.fecha, color = Suave, fontSize = 12.sp)
+                                jugada.selecciones.forEach { Text("• $it", color = Tinta, fontSize = 14.sp) }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
