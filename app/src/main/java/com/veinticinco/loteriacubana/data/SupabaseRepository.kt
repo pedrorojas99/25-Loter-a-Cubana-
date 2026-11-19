@@ -55,6 +55,53 @@ object SupabaseRepository {
             } catch (error: Exception) { mainHandler.post { callback(Result.failure(error)) } }
         }.start()
     }
+
+    // Actualiza los últimos 10 días desde el PDF oficial y conserva la copia verificada en Supabase.
+    fun cargarUltimosDiezDias(callback: (Result<List<ResultadoPublico>>) -> Unit) {
+        Thread {
+            try {
+                val endpoint = BuildConfig.SUPABASE_URL.trimEnd('/') + "/functions/v1/lookup-pick3-date"
+                val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 20000
+                    readTimeout = 60000
+                    doOutput = true
+                    setRequestProperty("apikey", BuildConfig.SUPABASE_PUBLISHABLE_KEY)
+                    setRequestProperty("Authorization", "Bearer ${BuildConfig.SUPABASE_PUBLISHABLE_KEY}")
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Accept", "application/json")
+                }
+                try {
+                    connection.outputStream.bufferedWriter(Charsets.UTF_8).use {
+                        it.write(org.json.JSONObject().put("recent_days", 10).toString())
+                    }
+                    val status = connection.responseCode
+                    val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                    val body = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    if (status !in 200..299) {
+                        val message = runCatching { org.json.JSONObject(body).optString("error") }.getOrDefault("")
+                        throw IllegalStateException(message.ifBlank { "No se pudieron actualizar los últimos 10 días (HTTP $status)." })
+                    }
+                    val array = org.json.JSONObject(body).optJSONArray("results") ?: JSONArray()
+                    val rows = mutableListOf<ResultadoPublico>()
+                    for (i in 0 until array.length()) {
+                        val row = array.getJSONObject(i)
+                        rows += ResultadoPublico(
+                            fecha = row.optString("draw_date"),
+                            juego = "PICK_3",
+                            turno = row.optString("period"),
+                            numero = row.optString("winning_number"),
+                            fireball = row.optString("fireball").takeIf { value -> value.isNotBlank() && value != "null" }
+                        )
+                    }
+                    mainHandler.post { callback(Result.success(rows)) }
+                } finally { connection.disconnect() }
+            } catch (error: Exception) {
+                mainHandler.post { callback(Result.failure(error)) }
+            }
+        }.start()
+    }
+
     // Consulta por fecha: primero usa el historial guardado; si falta, pide a la función
     // segura que consulte el PDF oficial de Florida Lottery y almacene el resultado verificado.
     fun buscarResultadoOficial(fecha: String, callback: (Result<List<ResultadoPublico>>) -> Unit) {
