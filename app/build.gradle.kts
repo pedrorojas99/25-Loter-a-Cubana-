@@ -7,14 +7,37 @@ plugins {
 android {
     namespace = "com.veinticinco.loteriacubana"
     compileSdk = 35
+
     defaultConfig {
         applicationId = "com.veinticinco.loteriacubana"
         minSdk = 23
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-    buildFeatures { compose = true }
+
+    // Dos aplicaciones instalables e independientes: usuarios y administrador.
+    flavorDimensions += "audience"
+    productFlavors {
+        create("usuarios") {
+            dimension = "audience"
+            applicationIdSuffix = ".usuarios"
+            resValue("string", "app_name", "25 Lotería Cubana")
+            buildConfigField("boolean", "ADMIN_APP", "false")
+        }
+        create("admin") {
+            dimension = "audience"
+            applicationIdSuffix = ".admin"
+            resValue("string", "app_name", "25 Lotería Cubana Admin")
+            buildConfigField("boolean", "ADMIN_APP", "true")
+        }
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
