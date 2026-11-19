@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -121,12 +122,12 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
     var creandoCuenta by remember { mutableStateOf(false) }
     var recuperando by remember { mutableStateOf(false) }
     var codigoEnviado by remember { mutableStateOf(false) }
-    var verificandoRegistro by remember { mutableStateOf(false) }
     var username by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var codigo by remember { mutableStateOf("") }
     var nuevaPassword by remember { mutableStateOf("") }
+    var codigoRecuperacion by remember { mutableStateOf<String?>(null) }
     var mensaje by remember { mutableStateOf<String?>(null) }
     var cargando by remember { mutableStateOf(false) }
 
@@ -142,8 +143,9 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
             Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(
                     when {
-                        verificandoRegistro -> "Verifica tu correo"
-                        recuperando -> if (codigoEnviado) "Restablecer contraseña" else "Recuperar cuenta"
+                        codigoRecuperacion != null -> "Guarda tu código único"
+                        recuperando && codigoEnviado -> "Restablecer contraseña"
+                        recuperando -> "Recuperar cuenta"
                         creandoCuenta -> "Crear cuenta"
                         else -> "Iniciar sesión"
                     },
@@ -151,137 +153,145 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
                 )
                 Text(
                     when {
-                        verificandoRegistro -> "Escribe el código de 6 dígitos que enviamos a tu correo para activar la cuenta."
-                        recuperando -> "Usaremos el correo asociado a tu cuenta."
-                        creandoCuenta -> "Registra un correo real. Lo verificaremos y te servirá para recuperar tu cuenta."
+                        codigoRecuperacion != null -> "Este código se muestra una sola vez. Guárdalo en un lugar seguro; lo necesitarás si olvidas tu contraseña."
+                        recuperando -> "Escribe el correo de tu cuenta, tu código personal de recuperación y una contraseña nueva."
+                        creandoCuenta -> "Registra un correo real. No enviaremos confirmación por correo. Tu código único servirá para recuperar la cuenta."
                         else -> "Inicia sesión con tu correo y contraseña desde cualquier teléfono."
                     },
                     color = Suave, fontSize = 13.sp
                 )
 
-                if (!recuperando && creandoCuenta && !verificandoRegistro) {
+                if (codigoRecuperacion != null) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Fondo),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("TU CÓDIGO DE RECUPERACIÓN", color = Suave, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            SelectionContainer {
+                                Text(codigoRecuperacion!!, color = Tinta, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                            }
+                            Text("No lo compartas. El sistema guarda únicamente una huella protegida del código.", color = Suave, fontSize = 11.sp)
+                        }
+                    }
+                } else {
+                    if (creandoCuenta && !recuperando) {
+                        OutlinedTextField(
+                            value = username,
+                            onValueChange = { username = it; mensaje = null },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Nombre de usuario") },
+                            singleLine = true
+                        )
+                    }
+
                     OutlinedTextField(
-                        value = username,
-                        onValueChange = { username = it; mensaje = null },
+                        value = email,
+                        onValueChange = { email = it.trim(); mensaje = null },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Nombre de usuario") },
-                        singleLine = true
+                        label = { Text("Correo electrónico") },
+                        placeholder = { Text("tunombre@correo.com") },
+                        singleLine = true,
+                        enabled = !(recuperando && codigoEnviado),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
                     )
+
+                    if (recuperando && codigoEnviado) {
+                        OutlinedTextField(
+                            value = codigo,
+                            onValueChange = {
+                                codigo = it.uppercase().filter { c -> c in 'A'..'F' || c in '0'..'9' || c == '-' }.take(44)
+                                mensaje = null
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Código único de recuperación") },
+                            placeholder = { Text("XXXXXXXX-XXXXXXXX-...") },
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = nuevaPassword,
+                            onValueChange = { nuevaPassword = it; mensaje = null },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Nueva contraseña") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation()
+                        )
+                    } else if (!recuperando) {
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = { password = it; mensaje = null },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Contraseña") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation()
+                        )
+                    }
+
+                    if (creandoCuenta && !recuperando) {
+                        Text("Usuario: 3–20 caracteres. Contraseña: al menos 8 caracteres.", color = Suave, fontSize = 12.sp)
+                    }
                 }
 
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it.trim(); mensaje = null },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Correo electrónico") },
-                    placeholder = { Text("tunombre@correo.com") },
-                    singleLine = true,
-                    enabled = !verificandoRegistro && !(recuperando && codigoEnviado),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                if (mensaje != null) Text(
+                    mensaje!!,
+                    color = if (mensaje!!.contains("actualizada") || mensaje!!.contains("guardado") || mensaje!!.contains("creada")) Azul else Color(0xFFB45309),
+                    fontSize = 13.sp
                 )
-
-                if (verificandoRegistro || (recuperando && codigoEnviado)) {
-                    OutlinedTextField(
-                        value = codigo,
-                        onValueChange = { codigo = it.filter(Char::isDigit).take(8); mensaje = null },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Código recibido por correo") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                    )
-                }
-
-                if (recuperando && codigoEnviado) {
-                    OutlinedTextField(
-                        value = nuevaPassword,
-                        onValueChange = { nuevaPassword = it; mensaje = null },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Nueva contraseña") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation()
-                    )
-                } else if (!recuperando && !verificandoRegistro) {
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it; mensaje = null },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Contraseña") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation()
-                    )
-                }
-
-                if (creandoCuenta && !recuperando && !verificandoRegistro) {
-                    Text("Usuario: 3–20 caracteres. Contraseña: al menos 8 caracteres.", color = Suave, fontSize = 12.sp)
-                }
-                if (mensaje != null) Text(mensaje!!, color = if (mensaje!!.contains("verificado") || mensaje!!.contains("actualizada") || mensaje!!.contains("enviamos")) Azul else Color(0xFFB45309), fontSize = 13.sp)
 
                 Button(
                     onClick = {
-                        val correoValido = android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches()
-                        when {
-                            !correoValido -> mensaje = "Escribe un correo electrónico válido."
-                            verificandoRegistro && codigo.length !in 6..8 ->
-                                mensaje = "Introduce el código de verificación."
-                            verificandoRegistro -> {
-                                cargando = true
-                                AuthRepository.verifySignupCode(context, email, codigo) { result ->
-                                    cargando = false
-                                    result.onSuccess {
-                                        verificandoRegistro = false
-                                        creandoCuenta = false
-                                        codigo = ""
-                                        password = ""
-                                        mensaje = it
-                                    }.onFailure { mensaje = it.message ?: "El código no es válido o ha caducado." }
+                        if (codigoRecuperacion != null) {
+                            codigoRecuperacion = null
+                            creandoCuenta = false
+                            recuperando = false
+                            codigoEnviado = false
+                            email = ""
+                            password = ""
+                            mensaje = "Cuenta creada. Ya puedes iniciar sesión con tu correo y contraseña."
+                        } else {
+                            val correoValido = android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches()
+                            when {
+                                !correoValido -> mensaje = "Escribe un correo electrónico válido."
+                                recuperando && !codigoEnviado -> {
+                                    codigoEnviado = true
+                                    mensaje = "Introduce el código que guardaste al crear tu cuenta."
                                 }
-                            }
-                            recuperando && codigoEnviado && (codigo.length !in 6..8 || nuevaPassword.length < 8) ->
-                                mensaje = "Introduce el código y una contraseña de al menos 8 caracteres."
-                            recuperando && !codigoEnviado -> {
-                                cargando = true
-                                AuthRepository.sendRecoveryCode(email) { result ->
-                                    cargando = false
-                                    result.onSuccess {
-                                        codigoEnviado = true
-                                        mensaje = it
-                                    }.onFailure { mensaje = it.message ?: "No se pudo enviar el correo." }
+                                recuperando && (codigo.replace("-", "").length != 40 || nuevaPassword.length < 8) ->
+                                    mensaje = "Introduce el código completo y una contraseña de al menos 8 caracteres."
+                                recuperando -> {
+                                    cargando = true
+                                    AuthRepository.resetPasswordWithRecoveryCode(email, codigo, nuevaPassword) { result ->
+                                        cargando = false
+                                        result.onSuccess {
+                                            recuperando = false
+                                            codigoEnviado = false
+                                            codigo = ""
+                                            nuevaPassword = ""
+                                            password = ""
+                                            mensaje = it
+                                        }.onFailure { mensaje = it.message ?: "No se pudo recuperar la cuenta." }
+                                    }
                                 }
-                            }
-                            recuperando -> {
-                                cargando = true
-                                AuthRepository.verifyRecoveryCode(email, codigo, nuevaPassword) { result ->
-                                    cargando = false
-                                    result.onSuccess {
-                                        recuperando = false
-                                        codigoEnviado = false
-                                        password = ""
-                                        codigo = ""
-                                        nuevaPassword = ""
-                                        mensaje = it
-                                    }.onFailure { mensaje = it.message ?: "El código no es válido o ha caducado." }
+                                creandoCuenta && (username.length !in 3..20 || !username.matches(Regex("[A-Za-z0-9_.]+")) || password.length < 8) ->
+                                    mensaje = "Revisa el usuario y usa una contraseña de al menos 8 caracteres."
+                                creandoCuenta -> {
+                                    cargando = true
+                                    AuthRepository.register(context, username, email, password) { result ->
+                                        cargando = false
+                                        result.onSuccess { registration ->
+                                            codigoRecuperacion = registration.recoveryCode
+                                            mensaje = "La cuenta se creó correctamente."
+                                        }.onFailure { mensaje = it.message ?: "No se pudo crear la cuenta." }
+                                    }
                                 }
-                            }
-                            creandoCuenta && (username.length !in 3..20 || !username.matches(Regex("[A-Za-z0-9_.]+")) || password.length < 8) ->
-                                mensaje = "Revisa el usuario y usa una contraseña de al menos 8 caracteres."
-                            creandoCuenta -> {
-                                cargando = true
-                                AuthRepository.register(context, username, email, password) { result ->
-                                    cargando = false
-                                    result.onSuccess {
-                                        verificandoRegistro = true
-                                        codigo = ""
-                                        mensaje = "Te enviamos un código. Revisa también la carpeta de spam."
-                                    }.onFailure { mensaje = it.message ?: "No se pudo crear la cuenta." }
-                                }
-                            }
-                            password.isBlank() -> mensaje = "Escribe tu contraseña."
-                            else -> {
-                                cargando = true
-                                AuthRepository.login(context, email, password) { result ->
-                                    cargando = false
-                                    result.onSuccess(onAuthenticated)
-                                        .onFailure { mensaje = "No se pudo iniciar sesión. Comprueba correo, contraseña y que el correo esté verificado." }
+                                password.isBlank() -> mensaje = "Escribe tu contraseña."
+                                else -> {
+                                    cargando = true
+                                    AuthRepository.login(context, email, password) { result ->
+                                        cargando = false
+                                        result.onSuccess(onAuthenticated)
+                                            .onFailure { mensaje = "No se pudo iniciar sesión. Comprueba el correo y la contraseña." }
+                                    }
                                 }
                             }
                         }
@@ -292,42 +302,42 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
                     if (cargando) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
                     else Text(
                         when {
-                            verificandoRegistro -> "Verificar correo"
+                            codigoRecuperacion != null -> "Ya guardé mi código"
                             recuperando && codigoEnviado -> "Cambiar contraseña"
-                            recuperando -> "Enviar código"
+                            recuperando -> "Continuar"
                             creandoCuenta -> "Crear cuenta"
                             else -> "Entrar"
                         }
                     )
                 }
 
-                if (!recuperando && !creandoCuenta && !verificandoRegistro) {
+                if (codigoRecuperacion == null && !recuperando && !creandoCuenta) {
                     TextButton(
                         onClick = { recuperando = true; codigoEnviado = false; mensaje = null; password = "" },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("Olvidé mi contraseña") }
                 }
 
-                TextButton(
-                    onClick = {
-                        when {
-                            verificandoRegistro -> { verificandoRegistro = false; creandoCuenta = false }
-                            recuperando -> { recuperando = false; codigoEnviado = false; codigo = ""; nuevaPassword = "" }
-                            else -> creandoCuenta = !creandoCuenta
-                        }
-                        mensaje = null
-                        password = ""
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        when {
-                            verificandoRegistro -> "Volver al inicio de sesión"
-                            recuperando -> "Volver al inicio de sesión"
-                            creandoCuenta -> "Ya tengo una cuenta · Iniciar sesión"
-                            else -> "No tengo cuenta · Registrarme"
-                        }
-                    )
+                if (codigoRecuperacion == null) {
+                    TextButton(
+                        onClick = {
+                            when {
+                                recuperando -> { recuperando = false; codigoEnviado = false; codigo = ""; nuevaPassword = "" }
+                                else -> creandoCuenta = !creandoCuenta
+                            }
+                            mensaje = null
+                            password = ""
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            when {
+                                recuperando -> "Volver al inicio de sesión"
+                                creandoCuenta -> "Ya tengo una cuenta · Iniciar sesión"
+                                else -> "No tengo cuenta · Registrarme"
+                            }
+                        )
+                    }
                 }
             }
         }
