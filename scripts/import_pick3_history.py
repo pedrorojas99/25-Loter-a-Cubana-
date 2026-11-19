@@ -11,10 +11,11 @@ import pdfplumber
 import requests
 
 OFFICIAL_URL = "https://files.floridalottery.com/exptkt/p3.pdf"
-PDF_URLS = [
-    "https://files.floridalottery.com/exptkt/p3.pdf",
-    "https://www.flalottery.com/exptkt/p3.pdf",
-    "https://flalottery.com/exptkt/p3.pdf",
+PDF_SOURCES = [
+    ("direct", "https://files.floridalottery.com/exptkt/p3.pdf"),
+    ("allorigins", "https://api.allorigins.win/raw?url=https%3A%2F%2Ffiles.floridalottery.com%2Fexptkt%2Fp3.pdf"),
+    ("corsproxy", "https://corsproxy.io/?url=https%3A%2F%2Ffiles.floridalottery.com%2Fexptkt%2Fp3.pdf"),
+    ("codetabs", "https://api.codetabs.com/v1/proxy?quest=https%3A%2F%2Ffiles.floridalottery.com%2Fexptkt%2Fp3.pdf"),
 ]
 ROW = re.compile(
     r"(?<!\d)(\d{1,2}/\d{1,2}/\d{2})\s+([ME])\s+"
@@ -39,25 +40,21 @@ def visual_lines(page):
 def fetch_official_pdf():
     failures = []
     session = requests.Session()
-    for url in PDF_URLS:
+    for transport, url in PDF_SOURCES:
         try:
-            response = session.get(
-                url,
-                timeout=(20, 90),
-                headers={"User-Agent": "Mozilla/5.0 (compatible; 25LoteriaCubana/1.0)", "Accept": "application/pdf"},
-            )
+            response = session.get(url, timeout=(20, 120), headers={"User-Agent": "Mozilla/5.0 (compatible; 25LoteriaCubana/1.0)", "Accept": "application/pdf,*/*"})
             response.raise_for_status()
-            content = response.content
-            if content.startswith(b"%PDF-") and len(content) > 100_000:
-                return content, response.url
-            failures.append(f"{url}: non-PDF response ({len(content)} bytes, {response.headers.get('content-type')})")
+            data = response.content
+            if data.startswith(b"%PDF-") and len(data) > 100_000:
+                return data, transport
+            failures.append(f"{transport}: non-PDF response ({len(data)} bytes, {response.headers.get('content-type')})")
         except Exception as exc:
-            failures.append(f"{url}: {type(exc).__name__}: {str(exc)[:300]}")
-    raise SystemExit("Could not retrieve official PDF from any official host: " + " | ".join(failures))
+            failures.append(f"{transport}: {type(exc).__name__}: {str(exc)[:240]}")
+    raise SystemExit("Could not retrieve official Florida Lottery PDF: " + " | ".join(failures))
 
 def main():
     assert ROW.search("11/11/26 E 0 - 5 - 2 FB 1 10/16/26 M 9 - 5 - 2 FB 7")
-    pdf_bytes, retrieved_url = fetch_official_pdf()
+    pdf_bytes, transport = fetch_official_pdf()
     by_key = {}
     matched = 0
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
@@ -107,7 +104,7 @@ def main():
 
     payload = {
         "source_url": OFFICIAL_URL,
-        "retrieved_from": retrieved_url,
+        "retrieval_transport": transport,
         "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
         "pdf_pages": page_count,
         "rows": records,
