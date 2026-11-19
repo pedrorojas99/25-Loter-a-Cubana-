@@ -26,7 +26,7 @@ object AuthRepository {
         )
 
     private fun request(path: String, method: String, body: JSONObject, bearer: String? = null): JSONObject {
-        val connection = (URL(BuildConfig.SUPABASE_URL.trimEnd('/') + path).openConnection() as HttpURLConnection)
+        val connection = URL(BuildConfig.SUPABASE_URL.trimEnd('/') + path).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = method
             connection.connectTimeout = 15000
@@ -39,11 +39,13 @@ object AuthRepository {
             connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val response = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            val response = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
             val json = if (response.isBlank()) JSONObject() else JSONObject(response)
             if (status !in 200..299) {
                 val message = json.optString("msg").ifBlank {
-                    json.optString("message").ifBlank { json.optString("error_description").ifBlank { json.optString("error") } }
+                    json.optString("message").ifBlank {
+                        json.optString("error_description").ifBlank { json.optString("error") }
+                    }
                 }
                 throw IllegalStateException(message.ifBlank { "Error de conexión ($status)" })
             }
@@ -53,38 +55,86 @@ object AuthRepository {
         }
     }
 
-    fun register(context: Context, username: String, password: String, callback: (Result<String>) -> Unit) {
+    fun register(context: Context, username: String, email: String, password: String, callback: (Result<String>) -> Unit) {
         Thread {
             try {
                 val result = request(
-                    "/functions/v1/register-user",
+                    "/auth/v1/signup",
                     "POST",
-                    JSONObject().put("username", username.trim()).put("password", password)
+                    JSONObject()
+                        .put("email", email.trim())
+                        .put("password", password)
+                        .put("data", JSONObject().put("username", username.trim()).put("display_name", username.trim()))
                 )
-                mainHandler.post { callback(Result.success(result.optString("message", "Cuenta creada. Ya puedes iniciar sesión."))) }
+                val access = result.optString("access_token")
+                val refresh = result.optString("refresh_token")
+                if (access.isNotBlank() && refresh.isNotBlank()) {
+                    val user = result.optJSONObject("user")
+                    save(context, UserSession(
+                        user?.optJSONObject("user_metadata")?.optString("username")?.takeIf { !it.isNullOrBlank() } ?: username.trim(),
+                        access,
+                        refresh
+                    ))
+                }
+                mainHandler.post {
+                    callback(Result.success("Te enviamos un correo para verificar tu cuenta. Confirma tu dirección y después inicia sesión."))
+                }
             } catch (e: Exception) {
                 mainHandler.post { callback(Result.failure(e)) }
             }
         }.start()
     }
 
-    fun login(context: Context, username: String, password: String, callback: (Result<UserSession>) -> Unit) {
+    fun login(context: Context, email: String, password: String, callback: (Result<UserSession>) -> Unit) {
         Thread {
             try {
-                val normalized = username.trim().lowercase()
-                val email = "$normalized@accounts.25loteria.invalid"
                 val result = request(
                     "/auth/v1/token?grant_type=password",
                     "POST",
-                    JSONObject().put("email", email).put("password", password)
+                    JSONObject().put("email", email.trim()).put("password", password)
                 )
+                val user = result.optJSONObject("user")
                 val session = UserSession(
-                    username = result.optJSONObject("user")?.optJSONObject("user_metadata")?.optString("username")?.takeIf { !it.isNullOrBlank() } ?: username.trim(),
+                    username = user?.optJSONObject("user_metadata")?.optString("username")?.takeIf { !it.isNullOrBlank() }
+                        ?: email.substringBefore("@"),
                     accessToken = result.getString("access_token"),
                     refreshToken = result.getString("refresh_token")
                 )
                 save(context, session)
                 mainHandler.post { callback(Result.success(session)) }
+            } catch (e: Exception) {
+                mainHandler.post { callback(Result.failure(e)) }
+            }
+        }.start()
+    }
+
+    fun sendRecoveryCode(email: String, callback: (Result<String>) -> Unit) {
+        Thread {
+            try {
+                request("/auth/v1/recover", "POST", JSONObject().put("email", email.trim()))
+                mainHandler.post { callback(Result.success("Si el correo está registrado, recibirás instrucciones para recuperar la contraseña.")) }
+            } catch (e: Exception) {
+                mainHandler.post { callback(Result.failure(e)) }
+            }
+        }.start()
+    }
+
+    fun verifyRecoveryCode(email: String, token: String, newPassword: String, callback: (Result<String>) -> Unit) {
+        Thread {
+            try {
+                val verified = request(
+                    "/auth/v1/verify",
+                    "POST",
+                    JSONObject().put("type", "recovery").put("email", email.trim()).put("token", token.trim())
+                )
+                val accessToken = verified.getString("access_token")
+                request(
+                    "/auth/v1/user",
+                    "PUT",
+                    JSONObject().put("password", newPassword),
+                    accessToken
+                )
+                mainHandler.post { callback(Result.success("Contraseña actualizada. Ya puedes iniciar sesión en este teléfono o en otro.")) }
             } catch (e: Exception) {
                 mainHandler.post { callback(Result.failure(e)) }
             }
@@ -107,8 +157,6 @@ object AuthRepository {
                     save(context, it)
                 }
             } catch (_: Exception) {
-                // Si el teléfono está sin Internet, conserva la sesión cifrada
-                // y vuelve a intentar renovar el token en la próxima apertura.
                 UserSession(username, cachedAccess.orEmpty(), refresh)
             }
             mainHandler.post { callback(restored) }
