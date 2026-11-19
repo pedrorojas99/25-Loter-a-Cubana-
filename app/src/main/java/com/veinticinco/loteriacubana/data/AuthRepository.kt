@@ -11,6 +11,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 data class UserSession(val username: String, val accessToken: String, val refreshToken: String)
+data class RegistrationResult(val username: String, val recoveryCode: String)
 
 object AuthRepository {
     private const val PREFS = "secure_25_user_session"
@@ -55,30 +56,24 @@ object AuthRepository {
         }
     }
 
-    fun register(context: Context, username: String, email: String, password: String, callback: (Result<String>) -> Unit) {
+    fun register(context: Context, username: String, email: String, password: String, callback: (Result<RegistrationResult>) -> Unit) {
         Thread {
             try {
                 val result = request(
-                    "/auth/v1/signup",
+                    "/functions/v1/register-user",
                     "POST",
                     JSONObject()
-                        .put("email", email.trim())
+                        .put("username", username.trim())
+                        .put("email", email.trim().lowercase())
                         .put("password", password)
-                        .put("data", JSONObject().put("username", username.trim()).put("display_name", username.trim()))
                 )
-                val access = result.optString("access_token")
-                val refresh = result.optString("refresh_token")
-                if (access.isNotBlank() && refresh.isNotBlank()) {
-                    val user = result.optJSONObject("user")
-                    save(context, UserSession(
-                        user?.optJSONObject("user_metadata")?.optString("username")?.takeIf { !it.isNullOrBlank() } ?: username.trim(),
-                        access,
-                        refresh
-                    ))
-                }
-                mainHandler.post {
-                    callback(Result.success("Te enviamos un correo para verificar tu cuenta. Confirma tu dirección y después inicia sesión."))
-                }
+                val code = result.optString("recovery_code")
+                if (code.isBlank()) throw IllegalStateException("La cuenta se creó, pero no recibimos el código de recuperación. Contacta con soporte antes de continuar.")
+                val registration = RegistrationResult(
+                    result.optString("username", username.trim()),
+                    code
+                )
+                mainHandler.post { callback(Result.success(registration)) }
             } catch (e: Exception) {
                 mainHandler.post { callback(Result.failure(e)) }
             }
@@ -108,56 +103,28 @@ object AuthRepository {
         }.start()
     }
 
-    fun verifySignupCode(context: Context, email: String, token: String, callback: (Result<String>) -> Unit) {
+    fun resetPasswordWithRecoveryCode(
+        email: String,
+        recoveryCode: String,
+        newPassword: String,
+        callback: (Result<String>) -> Unit
+    ) {
         Thread {
             try {
-                val verified = request(
-                    "/auth/v1/verify",
+                val result = request(
+                    "/functions/v1/reset-password-with-code",
                     "POST",
-                    JSONObject().put("type", "signup").put("email", email.trim()).put("token", token.trim())
+                    JSONObject()
+                        .put("email", email.trim().lowercase())
+                        .put("recovery_code", recoveryCode.trim())
+                        .put("new_password", newPassword)
                 )
-                val access = verified.optString("access_token")
-                val refresh = verified.optString("refresh_token")
-                if (access.isNotBlank() && refresh.isNotBlank()) {
-                    val user = verified.optJSONObject("user")
-                    val username = user?.optJSONObject("user_metadata")?.optString("username")
-                        ?.takeIf { !it.isNullOrBlank() } ?: email.substringBefore("@")
-                    save(context, UserSession(username, access, refresh))
+                mainHandler.post {
+                    callback(Result.success(result.optString(
+                        "message",
+                        "Contraseña actualizada. Ya puedes iniciar sesión en cualquier teléfono."
+                    )))
                 }
-                mainHandler.post { callback(Result.success("Correo verificado. Ya puedes iniciar sesión.")) }
-            } catch (e: Exception) {
-                mainHandler.post { callback(Result.failure(e)) }
-            }
-        }.start()
-    }
-
-    fun sendRecoveryCode(email: String, callback: (Result<String>) -> Unit) {
-        Thread {
-            try {
-                request("/auth/v1/recover", "POST", JSONObject().put("email", email.trim()))
-                mainHandler.post { callback(Result.success("Si el correo está registrado, recibirás instrucciones para recuperar la contraseña.")) }
-            } catch (e: Exception) {
-                mainHandler.post { callback(Result.failure(e)) }
-            }
-        }.start()
-    }
-
-    fun verifyRecoveryCode(email: String, token: String, newPassword: String, callback: (Result<String>) -> Unit) {
-        Thread {
-            try {
-                val verified = request(
-                    "/auth/v1/verify",
-                    "POST",
-                    JSONObject().put("type", "recovery").put("email", email.trim()).put("token", token.trim())
-                )
-                val accessToken = verified.getString("access_token")
-                request(
-                    "/auth/v1/user",
-                    "PUT",
-                    JSONObject().put("password", newPassword),
-                    accessToken
-                )
-                mainHandler.post { callback(Result.success("Contraseña actualizada. Ya puedes iniciar sesión en este teléfono o en otro.")) }
             } catch (e: Exception) {
                 mainHandler.post { callback(Result.failure(e)) }
             }
