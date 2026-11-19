@@ -30,24 +30,18 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Download and parse official Florida Lottery PDF
+      - name: Read and parse official Florida Lottery PDF
         run: |
-          python -m pip install --disable-pip-version-check pypdf requests
+          python -m pip install --disable-pip-version-check requests
           python - <<'PY'
           import hashlib, json, re, requests
           from datetime import datetime, date
-          from pypdf import PdfReader
-          from io import BytesIO
 
-          url = "https://files.floridalottery.com/exptkt/p3.pdf"
-          response = requests.get(url, timeout=90, headers={"User-Agent":"25-Loteria-Cubana/1.0"})
+          official_url = "https://files.floridalottery.com/exptkt/p3.pdf"
+          reader_url = "https://r.jina.ai/http://files.floridalottery.com/exptkt/p3.pdf"
+          response = requests.get(reader_url, timeout=120, headers={"Accept":"text/plain"})
           response.raise_for_status()
-          pdf_bytes = response.content
-          reader = PdfReader(BytesIO(pdf_bytes))
-          chunks = []
-          for page in reader.pages:
-              chunks.append(page.extract_text() or "")
-          text = "\n".join(chunks)
+          text = response.text
 
           pattern = re.compile(
               r"(\d{1,2}/\d{1,2}/\d{2})\s+([ME])\s+(\d)\s*-\s*(\d)\s*-\s*(\d)\s+FB\s+(\d)",
@@ -67,7 +61,7 @@ jobs:
                   "winning_number": "".join(match.group(i) for i in (3,4,5)),
                   "fireball": match.group(6),
                   "source": "Florida Lottery official PICK 3 history PDF",
-                  "source_url": url,
+                  "source_url": official_url,
                   "published_at": None,
                   "verified": True
               }
@@ -75,25 +69,25 @@ jobs:
           records = [rows[key] for key in sorted(rows)]
           dates = sorted({r["draw_date"] for r in records})
           if len(records) < 1000:
-              raise SystemExit(f"Refusing incomplete PDF parse: only {len(records)} draws")
+              raise SystemExit(f"Refusing incomplete PDF text parse: only {len(records)} draws; response length={len(text)}")
           if not dates or dates[0] != "2025-01-01" or dates[-1] < "2026-01-01":
               raise SystemExit(f"Unexpected date coverage: {dates[:1]} .. {dates[-1:]}")
           if len(records) != len(rows):
               raise SystemExit("Duplicate detection failed")
 
           payload = {
-              "source_url": url,
-              "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
-              "pdf_pages": len(reader.pages),
+              "source_url": official_url,
+              "reader_url": reader_url,
+              "pdf_text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
               "rows": records
           }
           with open("pick3_payload.json", "w", encoding="utf-8") as f:
               json.dump(payload, f, ensure_ascii=False)
           print(json.dumps({
-              "pdf_pages": len(reader.pages),
               "records": len(records),
               "first_date": dates[0],
               "last_date": dates[-1],
+              "text_characters": len(text),
               "leading_zero_examples": [r for r in records if r["winning_number"].startswith("0")][:5]
           }, indent=2))
           PY
@@ -119,10 +113,7 @@ jobs:
           response = requests.post(
               "https://pnnujsvixsglydhafzih.supabase.co/functions/v1/sync-pick3-history",
               json=payload,
-              headers={
-                  "Authorization": "Bearer " + os.environ["OIDC_TOKEN"],
-                  "Content-Type": "application/json"
-              },
+              headers={"Authorization":"Bearer "+os.environ["OIDC_TOKEN"],"Content-Type":"application/json"},
               timeout=120
           )
           print("Supabase response:", response.status_code, response.text[:2000])
