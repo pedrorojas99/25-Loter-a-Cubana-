@@ -382,23 +382,7 @@ private fun Jugar(volver: () -> Unit) {
 
 @Composable
 private fun Estadisticas() {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Estadísticas", color = Tinta, fontSize = 27.sp, fontWeight = FontWeight.Bold)
-        Text("Análisis del Pick 3 de Miami", color = Suave)
-        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Frecuencia de números", color = Tinta, fontWeight = FontWeight.Bold)
-                Text("Las frecuencias, números más repetidos y menos frecuentes aparecerán cuando se cargue el historial oficial.", color = Suave, fontSize = 13.sp)
-                Text("Aún no hay suficientes resultados verificados.", color = Azul, fontWeight = FontWeight.SemiBold)
-            }
-        }
-        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Tendencias", color = Tinta, fontWeight = FontWeight.Bold)
-                Text("Se mostrarán estadísticas descriptivas; no garantizan resultados futuros ni premios.", color = Suave, fontSize = 13.sp)
-            }
-        }
-    }
+    EstadisticasScreen()
 }
 
 @Composable
