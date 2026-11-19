@@ -253,7 +253,6 @@ private fun Inicio(abrirJugar: () -> Unit) {
         }
         Text("Sorteos", color = Tinta, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Sorteo("Pick 2", Modifier.weight(1f))
             Sorteo("Pick 3", Modifier.weight(1f))
         }
         Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
@@ -305,7 +304,7 @@ private fun Jugar(volver: () -> Unit) {
                         }
                     }
                 }
-                Text(if (tipo == TipoJugada.NUMERO) "Número de 2 cifras (Pick 2)" else "Centena de 3 cifras (Pick 3)", color = Suave, fontSize = 13.sp)
+                Text(if (tipo == TipoJugada.NUMERO) "Fijo: últimos 2 dígitos del Pick 3" else "Centena: los 3 dígitos del Pick 3", color = Suave, fontSize = 13.sp)
                 OutlinedTextField(
                     value = numero,
                     onValueChange = { nuevo ->
@@ -385,7 +384,7 @@ private fun Jugar(volver: () -> Unit) {
 private fun Estadisticas() {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Estadísticas", color = Tinta, fontSize = 27.sp, fontWeight = FontWeight.Bold)
-        Text("Análisis de Pick 2 y Pick 3 de Miami", color = Suave)
+        Text("Análisis del Pick 3 de Miami", color = Suave)
         Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Frecuencia de números", color = Tinta, fontWeight = FontWeight.Bold)
@@ -537,7 +536,7 @@ private fun ResultadoFila(resultado: ResultadoPublico) {
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text((if (resultado.juego == "PICK_2") "Pick 2" else "Pick 3") + " · " +
+                Text("Pick 3 · " +
                     (if (resultado.turno == "MIDDAY") "Mediodía" else "Noche"),
                     color = Tinta, fontWeight = FontWeight.Bold)
                 Text(resultado.fecha, color = Suave, fontSize = 12.sp)
