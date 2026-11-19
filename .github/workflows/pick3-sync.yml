@@ -2,6 +2,9 @@ name: Florida Lottery Pick 3 history sync
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/pick3-sync.yml'
   schedule:
     - cron: "15 19 * * *"
     - cron: "15 3 * * *"
