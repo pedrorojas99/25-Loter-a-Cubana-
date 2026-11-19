@@ -29,8 +29,8 @@ object SupabaseRepository {
                 while (true) {
                     var endpoint = BuildConfig.SUPABASE_URL.trimEnd('/') +
                         "/rest/v1/lottery_draws?select=draw_date,game,period,winning_number,fireball" +
-                        "&verified=eq.true&draw_date=gte.2025-01-01"
-                    if (!fecha.isNullOrBlank()) endpoint += "&draw_date=eq.$fecha"
+                        "&verified=eq.true"
+                    endpoint += if (!fecha.isNullOrBlank()) "&draw_date=eq.$fecha" else "&draw_date=gte.2025-01-01"
                     endpoint += "&order=draw_date.desc,published_at.desc,game.asc,period.asc&limit=$PAGE_SIZE"
 
                     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
