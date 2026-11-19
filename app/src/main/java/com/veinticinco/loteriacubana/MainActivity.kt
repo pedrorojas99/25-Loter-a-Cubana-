@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.veinticinco.loteriacubana.data.ResultadoPublico
+import com.veinticinco.loteriacubana.data.JugadaRemota
 import com.veinticinco.loteriacubana.data.SupabaseRepository
 import com.veinticinco.loteriacubana.data.AuthRepository
 import com.veinticinco.loteriacubana.data.UserSession
@@ -133,9 +134,9 @@ private fun Aplicacion() {
                     when (pantalla) {
                         Pantalla.INICIO -> Inicio(abrirJugar = { pantalla = Pantalla.JUGAR })
                         Pantalla.ESTADISTICAS -> Estadisticas()
-                        Pantalla.HISTORIAL -> Historial()
+                        Pantalla.HISTORIAL -> Historial(session!!)
                         Pantalla.BILLETERA -> Billetera()
-                        Pantalla.JUGAR -> Jugar(volver = { pantalla = Pantalla.INICIO })
+                        Pantalla.JUGAR -> Jugar(session!!, volver = { pantalla = Pantalla.INICIO })
                     }
                 }
             }
@@ -411,11 +412,12 @@ private fun Inicio(abrirJugar: () -> Unit) {
 }
 
 @Composable
-private fun Jugar(volver: () -> Unit) {
+private fun Jugar(session: UserSession, volver: () -> Unit) {
     var tipo by remember { mutableStateOf(TipoJugada.NUMERO) }
     var turno by remember { mutableStateOf(Turno.MEDIODIA) }
     var numero by remember { mutableStateOf("") }
     var aviso by remember { mutableStateOf("") }
+    var guardandoBoleto by remember { mutableStateOf(false) }
     val boleto = remember { mutableStateListOf<String>() }
     val context = LocalContext.current
     val cifras = tipo.cifras
@@ -493,12 +495,21 @@ private fun Jugar(volver: () -> Unit) {
                     }
                     Button(
                         onClick = {
-                            guardarBoleto(context, boleto.toList())
-                            boleto.clear()
-                            aviso = "Boleto guardado en Mis jugadas."
+                            guardandoBoleto = true
+                            SupabaseRepository.guardarBoleto(session, boleto.toList()) { result ->
+                                guardandoBoleto = false
+                                result.onSuccess {
+                                    boleto.clear()
+                                    aviso = "Boleto guardado en tu cuenta. Estará disponible al iniciar sesión en otro teléfono."
+                                }.onFailure { aviso = it.message ?: "No se pudo guardar el boleto en la nube." }
+                            }
                         },
+                        enabled = !guardandoBoleto,
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("Guardar boleto en Mis jugadas") }
+                    ) {
+                        if (guardandoBoleto) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                        else Text("Guardar boleto en Mis jugadas")
+                    }
                     OutlinedButton(onClick = { boleto.clear(); aviso = "Boleto limpiado." }, modifier = Modifier.fillMaxWidth()) {
                         Text("Vaciar boleto")
                     }
@@ -520,10 +531,11 @@ private fun Estadisticas() {
 }
 
 @Composable
-private fun Historial() {
-    val context = LocalContext.current
+private fun Historial(session: UserSession) {
     var seccion by remember { mutableStateOf("Sorteos") }
-    val jugadas = remember { cargarBoletos(context) }
+    val jugadas = remember { mutableStateListOf<JugadaRemota>() }
+    var cargandoJugadas by remember { mutableStateOf(false) }
+    var errorJugadas by remember { mutableStateOf<String?>(null) }
     var resultados by remember { mutableStateOf<List<ResultadoPublico>?>(null) }
     var errorConexion by remember { mutableStateOf<String?>(null) }
     var cargandoBusqueda by remember { mutableStateOf(false) }
@@ -534,7 +546,13 @@ private fun Historial() {
     var fechaBusqueda by remember { mutableStateOf("") }
     var fechaAplicada by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(session.accessToken) {
+        cargandoJugadas = true
+        SupabaseRepository.cargarMisBoletos(session) { respuesta ->
+            cargandoJugadas = false
+            respuesta.onSuccess { lista -> jugadas.clear(); jugadas.addAll(lista); errorJugadas = null }
+                .onFailure { errorJugadas = it.message ?: "No se pudieron cargar tus boletos." }
+        }
         SupabaseRepository.cargarUltimosDiezDias { respuesta ->
             respuesta.onSuccess { resultados = it; errorConexion = null }
                 .onFailure { errorConexion = "No se pudieron cargar los sorteos. Comprueba tu conexión a Internet." }
@@ -703,20 +721,35 @@ private fun Historial() {
                 }
             }
         } else {
-            Text("Boletos guardados en este teléfono", color = Suave)
-            if (jugadas.isEmpty()) {
-                Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
-                    Text("Todavía no tienes boletos guardados. Crea un boleto desde Inicio y pulsa «Guardar boleto en Mis jugadas».", Modifier.padding(18.dp), color = Suave, fontSize = 13.sp)
+            Text("Boletos guardados en tu cuenta", color = Suave)
+            when {
+                cargandoJugadas -> CircularProgressIndicator(color = Azul)
+                errorJugadas != null -> {
+                    Text(errorJugadas!!, color = Color(0xFFB45309), fontSize = 13.sp)
+                    OutlinedButton(onClick = {
+                        cargandoJugadas = true
+                        SupabaseRepository.cargarMisBoletos(session) { respuesta ->
+                            cargandoJugadas = false
+                            respuesta.onSuccess { lista -> jugadas.clear(); jugadas.addAll(lista); errorJugadas = null }
+                                .onFailure { errorJugadas = it.message ?: "No se pudieron cargar tus boletos." }
+                        }
+                    }) { Text("Reintentar") }
                 }
-            } else {
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("${jugadas.size} boletos guardados", color = Azul, fontWeight = FontWeight.SemiBold)
-                    jugadas.forEachIndexed { index, jugada ->
-                        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
-                            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                                Text("Boleto #${jugadas.size - index}", color = Tinta, fontWeight = FontWeight.Bold)
-                                Text(jugada.fecha, color = Suave, fontSize = 12.sp)
-                                jugada.selecciones.forEach { Text("• $it", color = Tinta, fontSize = 14.sp) }
+                jugadas.isEmpty() -> {
+                    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
+                        Text("Todavía no tienes boletos guardados. Crea un boleto desde Inicio y pulsa «Guardar boleto en Mis jugadas».", Modifier.padding(18.dp), color = Suave, fontSize = 13.sp)
+                    }
+                }
+                else -> {
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("${jugadas.size} boletos guardados en la nube", color = Azul, fontWeight = FontWeight.SemiBold)
+                        jugadas.forEachIndexed { index, jugada ->
+                            Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
+                                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                    Text("Boleto #${jugadas.size - index}", color = Tinta, fontWeight = FontWeight.Bold)
+                                    Text(jugada.fecha, color = Suave, fontSize = 12.sp)
+                                    jugada.selecciones.forEach { Text("• $it", color = Tinta, fontSize = 14.sp) }
+                                }
                             }
                         }
                     }
