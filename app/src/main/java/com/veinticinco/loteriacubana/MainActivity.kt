@@ -31,6 +31,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.veinticinco.loteriacubana.data.ResultadoPublico
+import com.veinticinco.loteriacubana.data.SupabaseRepository
 
 private val Fondo = Color(0xFFF1F5F8)
 private val Tinta = Color(0xFF263746)
@@ -109,6 +111,14 @@ private fun Aplicacion() {
 
 @Composable
 private fun Inicio(abrirJugar: () -> Unit) {
+    var resultados by remember { mutableStateOf<List<ResultadoPublico>?>(null) }
+    var errorConexion by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        SupabaseRepository.cargarResultados { respuesta ->
+            respuesta.onSuccess { resultados = it; errorConexion = null }
+                .onFailure { errorConexion = "No se pudo conectar. Se intentará de nuevo al abrir la pantalla." }
+        }
+    }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -130,9 +140,13 @@ private fun Inicio(abrirJugar: () -> Unit) {
             Column(Modifier.padding(18.dp)) {
                 Text("Últimos resultados", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Tinta)
                 Spacer(Modifier.height(8.dp))
-                Text("Los resultados oficiales aparecerán aquí cuando se conecte y verifique la fuente de Florida Lottery.", color = Suave, fontSize = 14.sp)
-                Spacer(Modifier.height(8.dp))
-                Text("Aún no hay resultados cargados", color = Azul, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                when {
+                    errorConexion != null -> Text(errorConexion!!, color = Suave, fontSize = 13.sp)
+                    resultados == null -> Text("Conectando con la base de datos segura…", color = Suave, fontSize = 13.sp)
+                    resultados!!.isEmpty() -> Text("Conexión con Supabase correcta. Todavía no hay resultados oficiales verificados guardados.", color = Azul, fontSize = 13.sp)
+                    else -> resultados!!.take(4).forEach { ResultadoFila(it) }
+                }
             }
         }
         Text("Explora", color = Tinta, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -273,6 +287,14 @@ private fun Historial() {
     val context = LocalContext.current
     var seccion by remember { mutableStateOf("Sorteos") }
     val jugadas = remember { cargarBoletos(context) }
+    var resultados by remember { mutableStateOf<List<ResultadoPublico>?>(null) }
+    var errorConexion by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        SupabaseRepository.cargarResultados { respuesta ->
+            respuesta.onSuccess { resultados = it; errorConexion = null }
+                .onFailure { errorConexion = "No se pudieron cargar los sorteos. Comprueba tu conexión a Internet." }
+        }
+    }
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Historial", color = Tinta, fontSize = 27.sp, fontWeight = FontWeight.Bold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -280,11 +302,18 @@ private fun Historial() {
             FilterChip(selected = seccion == "Mis jugadas", onClick = { seccion = "Mis jugadas" }, label = { Text("Mis jugadas") })
         }
         if (seccion == "Sorteos") {
-            Text("Resultados anteriores de Florida Lottery · Miami", color = Suave)
-            Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
-                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Todavía no hay sorteos guardados", color = Tinta, fontWeight = FontWeight.Bold)
-                    Text("Aquí aparecerán Pick 2 y Pick 3, separados por fecha y turno, cuando se conecte la fuente oficial.", color = Suave, fontSize = 13.sp)
+            Text("Resultados verificados de Florida Lottery · Miami", color = Suave)
+            when {
+                errorConexion != null -> Text(errorConexion!!, color = Suave, fontSize = 13.sp)
+                resultados == null -> Text("Cargando historial desde la nube…", color = Suave, fontSize = 13.sp)
+                resultados!!.isEmpty() -> Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("La conexión está lista", color = Tinta, fontWeight = FontWeight.Bold)
+                        Text("Todavía no hay sorteos verificados en la base de datos. Cuando se publiquen y se sincronicen, aparecerán aquí.", color = Suave, fontSize = 13.sp)
+                    }
+                }
+                else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    resultados!!.forEach { ResultadoFila(it) }
                 }
             }
         } else {
@@ -307,6 +336,25 @@ private fun Historial() {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ResultadoFila(resultado: ResultadoPublico) {
+    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(15.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text((if (resultado.juego == "PICK_2") "Pick 2" else "Pick 3") + " · " +
+                    (if (resultado.turno == "MIDDAY") "Mediodía" else "Noche"),
+                    color = Tinta, fontWeight = FontWeight.Bold)
+                Text(resultado.fecha, color = Suave, fontSize = 12.sp)
+            }
+            Text(resultado.numero, color = Azul, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold)
         }
     }
 }
