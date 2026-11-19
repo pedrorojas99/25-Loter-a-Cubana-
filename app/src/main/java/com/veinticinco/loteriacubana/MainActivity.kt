@@ -409,7 +409,7 @@ private fun Historial() {
     var resultados by remember { mutableStateOf<List<ResultadoPublico>?>(null) }
     var errorConexion by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
-        SupabaseRepository.cargarHistorialDiario(limit = 10) { respuesta ->
+        SupabaseRepository.cargarUltimosDiezDias { respuesta ->
             respuesta.onSuccess { resultados = it; errorConexion = null }
                 .onFailure { errorConexion = "No se pudieron cargar los sorteos. Comprueba tu conexión a Internet." }
         }
@@ -459,7 +459,7 @@ private fun Historial() {
                     fechaAplicada = null
                     resultados = null
                     errorConexion = null
-                    SupabaseRepository.cargarHistorialDiario { respuesta ->
+                    SupabaseRepository.cargarUltimosDiezDias { respuesta ->
                         respuesta.onSuccess { resultados = it; errorConexion = null }
                             .onFailure { errorConexion = "No se pudieron cargar los sorteos. Comprueba tu conexión." }
                     }
