@@ -1,0 +1,130 @@
+name: Florida Lottery Pick 3 history sync
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 19 * * *"
+    - cron: "15 3 * * *"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: florida-pick3-history-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download and parse official Florida Lottery PDF
+        run: |
+          python -m pip install --disable-pip-version-check pypdf requests
+          python - <<'PY'
+          import hashlib, json, re, requests
+          from datetime import datetime, date
+          from pypdf import PdfReader
+          from io import BytesIO
+
+          url = "https://files.floridalottery.com/exptkt/p3.pdf"
+          response = requests.get(url, timeout=90, headers={"User-Agent":"25-Loteria-Cubana/1.0"})
+          response.raise_for_status()
+          pdf_bytes = response.content
+          reader = PdfReader(BytesIO(pdf_bytes))
+          chunks = []
+          for page in reader.pages:
+              chunks.append(page.extract_text() or "")
+          text = "\n".join(chunks)
+
+          pattern = re.compile(
+              r"(\d{1,2}/\d{1,2}/\d{2})\s+([ME])\s+(\d)\s*-\s*(\d)\s*-\s*(\d)\s+FB\s+(\d)",
+              re.IGNORECASE
+          )
+          rows = {}
+          for match in pattern.finditer(text):
+              draw_date = datetime.strptime(match.group(1), "%m/%d/%y").date()
+              if draw_date < date(2025, 1, 1) or draw_date > date.today():
+                  continue
+              period = "MIDDAY" if match.group(2).upper() == "M" else "EVENING"
+              key = (draw_date.isoformat(), period)
+              rows[key] = {
+                  "draw_date": draw_date.isoformat(),
+                  "game": "PICK_3",
+                  "period": period,
+                  "winning_number": "".join(match.group(i) for i in (3,4,5)),
+                  "fireball": match.group(6),
+                  "source": "Florida Lottery official PICK 3 history PDF",
+                  "source_url": url,
+                  "published_at": None,
+                  "verified": True
+              }
+
+          records = [rows[key] for key in sorted(rows)]
+          dates = sorted({r["draw_date"] for r in records})
+          if len(records) < 1000:
+              raise SystemExit(f"Refusing incomplete PDF parse: only {len(records)} draws")
+          if not dates or dates[0] != "2025-01-01" or dates[-1] < "2026-01-01":
+              raise SystemExit(f"Unexpected date coverage: {dates[:1]} .. {dates[-1:]}")
+          if len(records) != len(rows):
+              raise SystemExit("Duplicate detection failed")
+
+          payload = {
+              "source_url": url,
+              "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
+              "pdf_pages": len(reader.pages),
+              "rows": records
+          }
+          with open("pick3_payload.json", "w", encoding="utf-8") as f:
+              json.dump(payload, f, ensure_ascii=False)
+          print(json.dumps({
+              "pdf_pages": len(reader.pages),
+              "records": len(records),
+              "first_date": dates[0],
+              "last_date": dates[-1],
+              "leading_zero_examples": [r for r in records if r["winning_number"].startswith("0")][:5]
+          }, indent=2))
+          PY
+
+      - name: Request GitHub OIDC token
+        shell: bash
+        run: |
+          TOKEN_JSON=$(curl -fsS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=25-loteria-pick3")
+          TOKEN=$(python -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "$TOKEN_JSON")
+          echo "::add-mask::$TOKEN"
+          echo "PICK3_OIDC_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      - name: Import into Supabase
+        env:
+          OIDC_TOKEN: ${{ env.PICK3_OIDC_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json, os, requests
+          with open("pick3_payload.json", encoding="utf-8") as f:
+              payload = json.load(f)
+          response = requests.post(
+              "https://pnnujsvixsglydhafzih.supabase.co/functions/v1/sync-pick3-history",
+              json=payload,
+              headers={
+                  "Authorization": "Bearer " + os.environ["OIDC_TOKEN"],
+                  "Content-Type": "application/json"
+              },
+              timeout=120
+          )
+          print("Supabase response:", response.status_code, response.text[:2000])
+          response.raise_for_status()
+          result = response.json()
+          if result.get("status") != "success":
+              raise SystemExit("Supabase did not confirm a successful import")
+          PY
