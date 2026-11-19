@@ -10,6 +10,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,7 +29,7 @@ private val Tinta = Color(0xFF263746)
 private val Suave = Color(0xFF718096)
 private val Azul = Color(0xFF648CA6)
 
-private enum class Pantalla { INICIO, BILLETERA, JUGAR }
+private enum class Pantalla { INICIO, ESTADISTICAS, HISTORIAL, BILLETERA, JUGAR }
 private enum class OperacionBilletera { DEPOSITO, RETIRO }
 private enum class TipoJugada(val etiqueta: String, val cifras: Int) {
     NUMERO("Número", 2), CENTENA("Centena", 3)
@@ -45,20 +50,31 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun Aplicacion() {
     var pantalla by remember { mutableStateOf(Pantalla.INICIO) }
-    Surface(Modifier.fillMaxSize(), color = Fondo) {
-        when (pantalla) {
-            Pantalla.INICIO -> Inicio(
-                abrirBilletera = { pantalla = Pantalla.BILLETERA },
-                abrirJugar = { pantalla = Pantalla.JUGAR }
-            )
-            Pantalla.BILLETERA -> Billetera(volver = { pantalla = Pantalla.INICIO })
-            Pantalla.JUGAR -> Jugar(volver = { pantalla = Pantalla.INICIO })
+    Scaffold(
+        containerColor = Fondo,
+        bottomBar = {
+            NavigationBar(containerColor = Color.White) {
+                NavigationBarItem(selected = pantalla == Pantalla.INICIO || pantalla == Pantalla.JUGAR, onClick = { pantalla = Pantalla.INICIO }, icon = { Icon(Icons.Filled.Home, contentDescription = "Inicio") }, label = { Text("Inicio") })
+                NavigationBarItem(selected = pantalla == Pantalla.ESTADISTICAS, onClick = { pantalla = Pantalla.ESTADISTICAS }, icon = { Icon(Icons.Filled.BarChart, contentDescription = "Estadísticas") }, label = { Text("Estadísticas") })
+                NavigationBarItem(selected = pantalla == Pantalla.HISTORIAL, onClick = { pantalla = Pantalla.HISTORIAL }, icon = { Icon(Icons.Filled.History, contentDescription = "Historial") }, label = { Text("Historial") })
+                NavigationBarItem(selected = pantalla == Pantalla.BILLETERA, onClick = { pantalla = Pantalla.BILLETERA }, icon = { Icon(Icons.Filled.AccountBalanceWallet, contentDescription = "Billetera") }, label = { Text("Billetera") })
+            }
+        }
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding)) {
+            when (pantalla) {
+                Pantalla.INICIO -> Inicio(abrirJugar = { pantalla = Pantalla.JUGAR })
+                Pantalla.ESTADISTICAS -> Estadisticas()
+                Pantalla.HISTORIAL -> Historial()
+                Pantalla.BILLETERA -> Billetera()
+                Pantalla.JUGAR -> Jugar(volver = { pantalla = Pantalla.INICIO })
+            }
         }
     }
 }
 
 @Composable
-private fun Inicio(abrirBilletera: () -> Unit, abrirJugar: () -> Unit) {
+private fun Inicio(abrirJugar: () -> Unit) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -70,25 +86,6 @@ private fun Inicio(abrirBilletera: () -> Unit, abrirJugar: () -> Unit) {
                 Text("Resultados de Miami · Florida", color = Suave, fontSize = 13.sp)
             }
             Text("FL", Modifier.background(Color.White, RoundedCornerShape(14.dp)).padding(horizontal = 17.dp, vertical = 12.dp), color = Azul, fontWeight = FontWeight.Bold, fontSize = 22.sp)
-        }
-        Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Jugar número o centena", color = Tinta, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("Prepara tus selecciones para Pick 2 o Pick 3.", color = Suave, fontSize = 13.sp)
-                Button(onClick = abrirJugar, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
-                    Text("Crear boleto")
-                }
-                Text("Modo de prueba: no se reciben apuestas ni dinero.", color = Suave, fontSize = 11.sp)
-            }
-        }
-        Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Mi billetera", color = Tinta, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("La billetera permanecerá desactivada hasta integrar un proveedor de pagos autorizado.", color = Suave, fontSize = 13.sp)
-                OutlinedButton(onClick = abrirBilletera, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
-                    Text("Ver billetera")
-                }
-            }
         }
         Text("Sorteos", color = Tinta, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -209,7 +206,42 @@ private fun Jugar(volver: () -> Unit) {
 }
 
 @Composable
-private fun Billetera(volver: () -> Unit) {
+private fun Estadisticas() {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("Estadísticas", color = Tinta, fontSize = 27.sp, fontWeight = FontWeight.Bold)
+        Text("Análisis de Pick 2 y Pick 3 de Miami", color = Suave)
+        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Frecuencia de números", color = Tinta, fontWeight = FontWeight.Bold)
+                Text("Las frecuencias, números más repetidos y menos frecuentes aparecerán cuando se cargue el historial oficial.", color = Suave, fontSize = 13.sp)
+                Text("Aún no hay suficientes resultados verificados.", color = Azul, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Tendencias", color = Tinta, fontWeight = FontWeight.Bold)
+                Text("Se mostrarán estadísticas descriptivas; no garantizan resultados futuros ni premios.", color = Suave, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun Historial() {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("Historial", color = Tinta, fontSize = 27.sp, fontWeight = FontWeight.Bold)
+        Text("Resultados anteriores de Florida Lottery · Miami", color = Suave)
+        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Todavía no hay sorteos guardados", color = Tinta, fontWeight = FontWeight.Bold)
+                Text("Aquí aparecerán Pick 2 y Pick 3, separados por fecha y turno (mediodía y noche), una vez conectada y verificada la fuente oficial.", color = Suave, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun Billetera() {
     var operacion by remember { mutableStateOf(OperacionBilletera.DEPOSITO) }
     var cantidad by remember { mutableStateOf("") }
     Column(
