@@ -1,10 +1,6 @@
 package com.veinticinco.loteriacubana
 
 import android.os.Bundle
-import android.content.Context
-import android.content.SharedPreferences
-import org.json.JSONArray
-import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -50,31 +46,6 @@ private enum class TipoJugada(val etiqueta: String, val cifras: Int) {
 }
 private enum class Turno(val etiqueta: String) { MEDIODIA("Mediodía"), NOCHE("Noche") }
 
-private data class JugadaGuardada(val fecha: String, val selecciones: List<String>)
-
-private fun preferenciasJugada(context: Context): SharedPreferences =
-    context.getSharedPreferences("25_loteria_mis_jugadas", Context.MODE_PRIVATE)
-
-private fun guardarBoleto(context: Context, selecciones: List<String>) {
-    val prefs = preferenciasJugada(context)
-    val registros = JSONArray(prefs.getString("boletos", "[]") ?: "[]")
-    val nuevo = JSONObject().apply {
-        put("fecha", SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date()))
-        put("selecciones", JSONArray(selecciones))
-    }
-    registros.put(nuevo)
-    prefs.edit().putString("boletos", registros.toString()).apply()
-}
-
-private fun cargarBoletos(context: Context): List<JugadaGuardada> {
-    val registros = JSONArray(preferenciasJugada(context).getString("boletos", "[]") ?: "[]")
-    return (0 until registros.length()).mapNotNull { index ->
-        val item = registros.optJSONObject(index) ?: return@mapNotNull null
-        val nums = item.optJSONArray("selecciones") ?: JSONArray()
-        val selecciones = (0 until nums.length()).mapNotNull { nums.optString(it).takeIf { value -> value.isNotBlank() } }
-        if (selecciones.isEmpty()) null else JugadaGuardada(item.optString("fecha"), selecciones)
-    }.reversed()
-}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -419,7 +390,6 @@ private fun Jugar(session: UserSession, volver: () -> Unit) {
     var aviso by remember { mutableStateOf("") }
     var guardandoBoleto by remember { mutableStateOf(false) }
     val boleto = remember { mutableStateListOf<String>() }
-    val context = LocalContext.current
     val cifras = tipo.cifras
 
     Column(
@@ -518,7 +488,7 @@ private fun Jugar(session: UserSession, volver: () -> Unit) {
         }
         Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Fondo)) {
             Text(
-                "Importante: este boleto solo guarda selecciones en esta pantalla. No es una apuesta válida, no se envía a Florida Lottery y no mueve dinero. Las apuestas reales requieren autorización y un proveedor legal.",
+                "Importante: el boleto se guarda como historial personal en tu cuenta. No es una apuesta válida, no se envía a Florida Lottery y no mueve dinero. Las apuestas reales requieren autorización y un proveedor legal.",
                 Modifier.padding(14.dp), color = Suave, fontSize = 12.sp
             )
         }
