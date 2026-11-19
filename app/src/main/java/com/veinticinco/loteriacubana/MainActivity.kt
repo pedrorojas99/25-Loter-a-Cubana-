@@ -410,7 +410,7 @@ private fun Historial() {
     var resultados by remember { mutableStateOf<List<ResultadoPublico>?>(null) }
     var errorConexion by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
-        SupabaseRepository.cargarResultados { respuesta ->
+        SupabaseRepository.cargarHistorialDiario { respuesta ->
             respuesta.onSuccess { resultados = it; errorConexion = null }
                 .onFailure { errorConexion = "No se pudieron cargar los sorteos. Comprueba tu conexión a Internet." }
         }
@@ -447,7 +447,7 @@ private fun Historial() {
                         fechaAplicada = parsed
                         resultados = null
                         errorConexion = null
-                        SupabaseRepository.cargarResultados(parsed) { respuesta ->
+                        SupabaseRepository.cargarHistorialDiario(parsed) { respuesta ->
                             respuesta.onSuccess { resultados = it; errorConexion = null }
                                 .onFailure { errorConexion = "No se pudo buscar esa fecha. Comprueba tu conexión." }
                         }
@@ -460,7 +460,7 @@ private fun Historial() {
                     fechaAplicada = null
                     resultados = null
                     errorConexion = null
-                    SupabaseRepository.cargarResultados { respuesta ->
+                    SupabaseRepository.cargarHistorialDiario { respuesta ->
                         respuesta.onSuccess { resultados = it; errorConexion = null }
                             .onFailure { errorConexion = "No se pudieron cargar los sorteos. Comprueba tu conexión." }
                     }
@@ -476,7 +476,7 @@ private fun Historial() {
                     }
                 }
                 else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    resultados!!.forEach { ResultadoFila(it) }
+                    resultados!!.groupBy { it.fecha }.forEach { (fecha, sorteos) -> ResultadoDiaCard(fecha, sorteos) }
                 }
             }
         } else {
@@ -503,6 +503,31 @@ private fun Historial() {
     }
 }
 
+@Composable
+private fun ResultadoDiaCard(fecha: String, sorteos: List<ResultadoPublico>) {
+    val midday = sorteos.firstOrNull { it.turno == "MIDDAY" }?.numero ?: "—"
+    val evening = sorteos.firstOrNull { it.turno == "EVENING" }?.numero ?: "—"
+    val displayDate = runCatching {
+        val input = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val output = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+        output.format(input.parse(fecha) ?: Date())
+    }.getOrDefault(fecha)
+    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(displayDate, color = Tinta, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Sección del día", color = Suave, modifier = Modifier.weight(1f), fontSize = 14.sp)
+                Text(midday, color = Azul, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
+            }
+            Divider(color = Fondo)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Sección de la noche", color = Suave, modifier = Modifier.weight(1f), fontSize = 14.sp)
+                Text(evening, color = Azul, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
+            }
+            Text("Los dos últimos dígitos son el número; los tres dígitos completos son la centena.", color = Suave, fontSize = 11.sp)
+        }
+    }
+}
 @Composable
 private fun ResultadoFila(resultado: ResultadoPublico) {
     Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(15.dp)) {
