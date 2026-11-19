@@ -99,7 +99,10 @@ def main():
                     for match in ROW.finditer(line):
                         matched += 1
                         draw_day = datetime.strptime(match.group(1), "%m/%d/%y").date()
-                        if draw_day < date(2025, 1, 1) or draw_day > date.today():
+                        if draw_day < date(2025, 1, 1):
+                            crossed_history_boundary = True
+                            continue
+                        if draw_day > date.today():
                             continue
                         period = "MIDDAY" if match.group(2).upper() == "M" else "EVENING"
                         key = (draw_day.isoformat(), period)
@@ -112,7 +115,9 @@ def main():
                         if key in by_key and by_key[key] != record:
                             raise SystemExit(f"Conflicting official PDF rows for {key}")
                         by_key[key] = record
-    except SystemExit as pdf_error:
+            if crossed_history_boundary:
+                break
+    except (Exception, SystemExit) as pdf_error:
         print(f"Binary PDF retrieval unavailable; trying page-by-page official PDF OCR: {pdf_error}")
         ocr_records, matched = fetch_ocr_records()
         for record in ocr_records:
