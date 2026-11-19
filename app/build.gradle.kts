@@ -14,7 +14,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"\n        buildConfigField("String", "SUPABASE_URL", "\\"https://pnnujsvixsglydhafzih.supabase.co\\"")\n        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\\"sb_publishable_QneyznGxBERNLMlJ2JHDYQ_0LQFJ8Gt\\"")
     }
 
     // Dos aplicaciones instalables e independientes: usuarios y administrador.
