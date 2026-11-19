@@ -409,7 +409,7 @@ private fun Historial() {
     var resultados by remember { mutableStateOf<List<ResultadoPublico>?>(null) }
     var errorConexion by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
-        SupabaseRepository.cargarHistorialDiario { respuesta ->
+        SupabaseRepository.cargarHistorialDiario(limit = 10) { respuesta ->
             respuesta.onSuccess { resultados = it; errorConexion = null }
                 .onFailure { errorConexion = "No se pudieron cargar los sorteos. Comprueba tu conexión a Internet." }
         }
@@ -421,7 +421,7 @@ private fun Historial() {
             FilterChip(selected = seccion == "Mis jugadas", onClick = { seccion = "Mis jugadas" }, label = { Text("Mis jugadas") })
         }
         if (seccion == "Sorteos") {
-            Text("Resultados oficiales de Florida Lottery · Miami", color = Suave)
+            Text("Últimos 10 días · Resultados oficiales de Florida Lottery", color = Suave)
             Text("Resultados a partir del 2025", color = Azul, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             var fechaBusqueda by remember { mutableStateOf("") }
             var fechaAplicada by remember { mutableStateOf<String?>(null) }
@@ -446,7 +446,7 @@ private fun Historial() {
                         fechaAplicada = parsed
                         resultados = null
                         errorConexion = null
-                        SupabaseRepository.cargarHistorialDiario(parsed) { respuesta ->
+                        SupabaseRepository.buscarResultadoOficial(parsed) { respuesta ->
                             respuesta.onSuccess { resultados = it; errorConexion = null }
                                 .onFailure { errorConexion = "No se pudo buscar esa fecha. Comprueba tu conexión." }
                         }
@@ -463,7 +463,7 @@ private fun Historial() {
                         respuesta.onSuccess { resultados = it; errorConexion = null }
                             .onFailure { errorConexion = "No se pudieron cargar los sorteos. Comprueba tu conexión." }
                     }
-                }, modifier = Modifier.weight(1f)) { Text("Ver todos") }
+                }, modifier = Modifier.weight(1f)) { Text("Últimos 10 días") }
             }
             when {
                 errorConexion != null -> Text(errorConexion!!, color = Suave, fontSize = 13.sp)
