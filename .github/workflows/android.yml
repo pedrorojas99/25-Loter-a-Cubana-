@@ -1,3 +1,4 @@
+# Build trigger: public users APK (debug) for 25 Lotería Cubana.
 name: Android build
 
 on:
