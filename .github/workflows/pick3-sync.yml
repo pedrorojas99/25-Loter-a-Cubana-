@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - '.github/workflows/pick3-sync.yml'
+      - 'scripts/import_pick3_history.py'
   schedule:
     - cron: "15 19 * * *"
     - cron: "15 3 * * *"
@@ -20,7 +21,7 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,102 +30,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
 
-      - name: Read and parse official Florida Lottery PDF
+      - name: Extract and validate official PDF rows
         run: |
-          python -m pip install --disable-pip-version-check requests beautifulsoup4
-          python - <<'PY'
-          import hashlib, json, re, requests
-          from datetime import datetime, date
-          from bs4 import BeautifulSoup
-
-          official_url = "https://files.floridalottery.com/exptkt/p3.pdf"
-          reader_url = "https://r.jina.ai/http://files.floridalottery.com/exptkt/p3.pdf"
-          response = requests.get(
-              reader_url,
-              timeout=180,
-              headers={"X-Respond-With": "markdown", "Accept": "text/plain"}
-          )
-          response.raise_for_status()
-          document = response.text
-          if len(document) < 10000:
-              raise SystemExit(f"Reader returned an unexpectedly short document: {len(document)} chars; body={document[:1000]!r}")
-
-          # PDF.js exposes each PDF table cell in HTML mode. Parse cells independently
-          # so column-major text extraction cannot detach dates from their results.
-          soup = BeautifulSoup(document, "html.parser")
-          cells = [cell.get_text(" ", strip=True) for cell in soup.find_all(["td", "th"])]
-          # Fallback for a markdown/table response if the reader changes its wrapper.
-          if not cells:
-              cells = [line.strip() for line in document.splitlines() if line.strip()]
-
-          row_pattern = re.compile(
-              r"(?<!\d)(\d{1,2}/\d{1,2}/\d{2})\s+([ME])\s+"
-              r"(\d)\s*-\s*(\d)\s*-\s*(\d)\s+FB\s+(\d)(?!\d)",
-              re.IGNORECASE
-          )
-          rows = {}
-          parsed_cells = 0
-          for cell in cells:
-              normalized = re.sub(r"\s+", " ", cell).strip()
-              matches = list(row_pattern.finditer(normalized))
-              for match in matches:
-                  parsed_cells += 1
-                  draw_date = datetime.strptime(match.group(1), "%m/%d/%y").date()
-                  if draw_date < date(2025, 1, 1) or draw_date > date.today():
-                      continue
-                  period = "MIDDAY" if match.group(2).upper() == "M" else "EVENING"
-                  key = (draw_date.isoformat(), period)
-                  record = {
-                      "draw_date": draw_date.isoformat(),
-                      "game": "PICK_3",
-                      "period": period,
-                      "winning_number": "".join(match.group(i) for i in (3, 4, 5)),
-                      "fireball": match.group(6),
-                      "source": "Florida Lottery official PICK 3 history PDF",
-                      "source_url": official_url,
-                      "published_at": None,
-                      "verified": True
-                  }
-                  if key in rows and rows[key] != record:
-                      raise SystemExit(f"Conflicting duplicate result for {key}")
-                  rows[key] = record
-
-          records = [rows[key] for key in sorted(rows)]
-          dates = sorted({r["draw_date"] for r in records})
-          if len(records) < 1000:
-              raise SystemExit(
-                  f"Refusing incomplete official PDF parse: {len(records)} draws "
-                  f"from {parsed_cells} matching cells; document={len(document)} chars; "
-                  f"table_cells={len(cells)}"
-              )
-          if not dates or dates[0] != "2025-01-01" or dates[-1] < "2026-01-01":
-              raise SystemExit(f"Unexpected date coverage: {dates[:1]} .. {dates[-1:]}")
-          if len(records) != len(rows):
-              raise SystemExit("Duplicate detection failed")
-          # The expected archive has two independent Pick 3 draws on most dates.
-          # Do not fabricate a missing period; report coverage for audit instead.
-          payload = {
-              "source_url": official_url,
-              "reader_url": reader_url,
-              "pdf_text_sha256": hashlib.sha256(document.encode("utf-8")).hexdigest(),
-              "rows": records
-          }
-          with open("pick3_payload.json", "w", encoding="utf-8") as f:
-              json.dump(payload, f, ensure_ascii=False)
-          print(json.dumps({
-              "records": len(records),
-              "first_date": dates[0],
-              "last_date": dates[-1],
-              "distinct_days": len(dates),
-              "midday": sum(r["period"] == "MIDDAY" for r in records),
-              "evening": sum(r["period"] == "EVENING" for r in records),
-              "parsed_cells": parsed_cells,
-              "table_cells": len(cells),
-              "document_characters": len(document),
-              "leading_zero_examples": [r for r in records if r["winning_number"].startswith("0")][:5]
-          }, indent=2))
-          PY
+          python -m pip install --disable-pip-version-check "pdfplumber==0.11.7" "requests==2.32.5"
+          python scripts/import_pick3_history.py
 
       - name: Request GitHub OIDC token
         shell: bash
@@ -136,7 +47,7 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "PICK3_OIDC_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
-      - name: Import into Supabase
+      - name: Import official history into Supabase
         env:
           OIDC_TOKEN: ${{ env.PICK3_OIDC_TOKEN }}
         run: |
@@ -147,12 +58,17 @@ jobs:
           response = requests.post(
               "https://pnnujsvixsglydhafzih.supabase.co/functions/v1/sync-pick3-history",
               json=payload,
-              headers={"Authorization":"Bearer "+os.environ["OIDC_TOKEN"],"Content-Type":"application/json"},
+              headers={
+                  "Authorization": "Bearer " + os.environ["OIDC_TOKEN"],
+                  "Content-Type": "application/json"
+              },
               timeout=180
           )
-          print("Supabase response:", response.status_code, response.text[:2000])
+          print("Supabase import response:", response.status_code, response.text[:2000])
           response.raise_for_status()
           result = response.json()
           if result.get("status") != "success":
               raise SystemExit("Supabase did not confirm a successful import")
+          if result.get("rows_upserted") != len(payload["rows"]):
+              raise SystemExit("Supabase row count differs from validated PDF row count")
           PY
