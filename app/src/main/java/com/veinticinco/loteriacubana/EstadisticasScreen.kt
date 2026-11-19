@@ -160,7 +160,7 @@ fun EstadisticasScreen() {
                                     Text(item.numero, color = StatsBlue, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
                                     Text("${item.veces} veces · ${String.format(Locale.US, "%.1f", pct)}%", color = StatsInk, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                 }
-                                LinearProgressIndicator(progress = { pct / 100f }, modifier = Modifier.fillMaxWidth().height(6.dp), color = StatsBlue, trackColor = StatsBg)
+                                LinearProgressIndicator(progress = pct / 100f, modifier = Modifier.fillMaxWidth().height(6.dp), color = StatsBlue, trackColor = StatsBg)
                                 Text("Última aparición: ${item.ultimaFecha}", color = StatsMuted, fontSize = 10.sp)
                             }
                         }
