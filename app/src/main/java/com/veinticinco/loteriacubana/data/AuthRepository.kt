@@ -95,6 +95,7 @@ object AuthRepository {
         Thread {
             val prefs = securePrefs(context)
             val refresh = prefs.getString("refresh_token", null)
+            val cachedAccess = prefs.getString("access_token", null)
             val username = prefs.getString("username", null)
             val restored = if (refresh.isNullOrBlank() || username.isNullOrBlank()) null else try {
                 val result = request(
@@ -106,8 +107,9 @@ object AuthRepository {
                     save(context, it)
                 }
             } catch (_: Exception) {
-                clear(context)
-                null
+                // Si el teléfono está sin Internet, conserva la sesión cifrada
+                // y vuelve a intentar renovar el token en la próxima apertura.
+                UserSession(username, cachedAccess.orEmpty(), refresh)
             }
             mainHandler.post { callback(restored) }
         }.start()
@@ -121,7 +123,7 @@ object AuthRepository {
                 // La sesión local se elimina incluso si no hay conexión.
             } finally {
                 clear(context)
-                mainHandler.post(callback)
+                mainHandler.post { callback() }
             }
         }.start()
     }
