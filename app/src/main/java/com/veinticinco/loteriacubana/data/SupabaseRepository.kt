@@ -20,13 +20,13 @@ object SupabaseRepository {
     private const val PAGE_SIZE = 1000
 
     // Consulta la vista diaria agrupada de Pick 3 para el historial compacto.
-    fun cargarHistorialDiario(fecha: String? = null, callback: (Result<List<ResultadoPublico>>) -> Unit) {
+    fun cargarHistorialDiario(fecha: String? = null, limit: Int = 10, callback: (Result<List<ResultadoPublico>>) -> Unit) {
         Thread {
             try {
                 var endpoint = BuildConfig.SUPABASE_URL.trimEnd('/') +
                     "/rest/v1/lottery_daily_history?select=draw_date,midday_number,evening_number,midday_fireball,evening_fireball"
                 if (!fecha.isNullOrBlank()) endpoint += "&draw_date=eq.$fecha"
-                endpoint += "&order=draw_date.desc&limit=1000"
+                endpoint += "&order=draw_date.desc&limit=${limit.coerceIn(1, 30)}"
                 val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = 15000
@@ -78,6 +78,13 @@ object SupabaseRepository {
                     val status = connection.responseCode
                     val stream = if (status in 200..299) connection.inputStream else connection.errorStream
                     val body = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    if (status == 404) {
+                        val payload = runCatching { org.json.JSONObject(body) }.getOrNull()
+                        if (payload?.optString("status") == "not_found") {
+                            mainHandler.post { callback(Result.success(emptyList())) }
+                            return@Thread
+                        }
+                    }
                     if (status !in 200..299) {
                         val message = runCatching { org.json.JSONObject(body).optString("error") }.getOrDefault("")
                         throw IllegalStateException(message.ifBlank { "No se pudo consultar el resultado oficial (HTTP $status)." })
