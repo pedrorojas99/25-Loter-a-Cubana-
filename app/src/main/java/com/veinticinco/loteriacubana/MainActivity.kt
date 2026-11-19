@@ -28,11 +28,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.veinticinco.loteriacubana.data.ResultadoPublico
 import com.veinticinco.loteriacubana.data.SupabaseRepository
+import com.veinticinco.loteriacubana.data.AuthRepository
+import com.veinticinco.loteriacubana.data.UserSession
 
 private val Fondo = Color(0xFFF1F5F8)
 private val Tinta = Color(0xFF263746)
@@ -85,27 +88,144 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun Aplicacion() {
-    var pantalla by remember { mutableStateOf(Pantalla.INICIO) }
-    Scaffold(
-        containerColor = Fondo,
-        bottomBar = {
-            NavigationBar(containerColor = Color.White) {
-                NavigationBarItem(selected = pantalla == Pantalla.INICIO || pantalla == Pantalla.JUGAR, onClick = { pantalla = Pantalla.INICIO }, icon = { Icon(Icons.Filled.Home, contentDescription = "Inicio") }, label = { Text("Inicio") })
-                NavigationBarItem(selected = pantalla == Pantalla.ESTADISTICAS, onClick = { pantalla = Pantalla.ESTADISTICAS }, icon = { Icon(Icons.Filled.BarChart, contentDescription = "Estadísticas") }, label = { Text("Estadísticas") })
-                NavigationBarItem(selected = pantalla == Pantalla.HISTORIAL, onClick = { pantalla = Pantalla.HISTORIAL }, icon = { Icon(Icons.Filled.History, contentDescription = "Historial") }, label = { Text("Historial") })
-                NavigationBarItem(selected = pantalla == Pantalla.BILLETERA, onClick = { pantalla = Pantalla.BILLETERA }, icon = { Icon(Icons.Filled.AccountBalanceWallet, contentDescription = "Billetera") }, label = { Text("Billetera") })
+    val context = LocalContext.current
+    var session by remember { mutableStateOf<UserSession?>(null) }
+    var checkingSession by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        AuthRepository.restore(context) {
+            session = it
+            checkingSession = false
+        }
+    }
+
+    when {
+        checkingSession -> Box(Modifier.fillMaxSize().background(Fondo), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = Azul)
+        }
+        session == null -> PantallaAcceso(onAuthenticated = { session = it })
+        else -> {
+            var pantalla by remember { mutableStateOf(Pantalla.INICIO) }
+            Scaffold(
+                containerColor = Fondo,
+                topBar = {
+                    Row(
+                        Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 18.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Hola, ${session!!.username}", Modifier.weight(1f), color = Tinta, fontWeight = FontWeight.SemiBold)
+                        TextButton(onClick = {
+                            val current = session
+                            if (current != null) AuthRepository.logout(context, current) { session = null }
+                        }) { Text("Cerrar sesión", color = Azul) }
+                    }
+                },
+                bottomBar = {
+                    NavigationBar(containerColor = Color.White) {
+                        NavigationBarItem(selected = pantalla == Pantalla.INICIO || pantalla == Pantalla.JUGAR, onClick = { pantalla = Pantalla.INICIO }, icon = { Icon(Icons.Filled.Home, contentDescription = "Inicio") }, label = { Text("Inicio") })
+                        NavigationBarItem(selected = pantalla == Pantalla.ESTADISTICAS, onClick = { pantalla = Pantalla.ESTADISTICAS }, icon = { Icon(Icons.Filled.BarChart, contentDescription = "Estadísticas") }, label = { Text("Estadísticas") })
+                        NavigationBarItem(selected = pantalla == Pantalla.HISTORIAL, onClick = { pantalla = Pantalla.HISTORIAL }, icon = { Icon(Icons.Filled.History, contentDescription = "Historial") }, label = { Text("Historial") })
+                        NavigationBarItem(selected = pantalla == Pantalla.BILLETERA, onClick = { pantalla = Pantalla.BILLETERA }, icon = { Icon(Icons.Filled.AccountBalanceWallet, contentDescription = "Billetera") }, label = { Text("Billetera") })
+                    }
+                }
+            ) { padding ->
+                Box(Modifier.fillMaxSize().padding(padding)) {
+                    when (pantalla) {
+                        Pantalla.INICIO -> Inicio(abrirJugar = { pantalla = Pantalla.JUGAR })
+                        Pantalla.ESTADISTICAS -> Estadisticas()
+                        Pantalla.HISTORIAL -> Historial()
+                        Pantalla.BILLETERA -> Billetera()
+                        Pantalla.JUGAR -> Jugar(volver = { pantalla = Pantalla.INICIO })
+                    }
+                }
             }
         }
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            when (pantalla) {
-                Pantalla.INICIO -> Inicio(abrirJugar = { pantalla = Pantalla.JUGAR })
-                Pantalla.ESTADISTICAS -> Estadisticas()
-                Pantalla.HISTORIAL -> Historial()
-                Pantalla.BILLETERA -> Billetera()
-                Pantalla.JUGAR -> Jugar(volver = { pantalla = Pantalla.INICIO })
+    }
+}
+
+@Composable
+private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
+    val context = LocalContext.current
+    var creandoCuenta by remember { mutableStateOf(false) }
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var mensaje by remember { mutableStateOf<String?>(null) }
+    var cargando by remember { mutableStateOf(false) }
+
+    Column(
+        Modifier.fillMaxSize().background(Fondo).verticalScroll(rememberScrollState()).padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("25", color = Azul, fontSize = 58.sp, fontWeight = FontWeight.ExtraBold)
+        Text("LOTERÍA CUBANA", color = Tinta, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(22.dp))
+        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(22.dp)) {
+            Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(if (creandoCuenta) "Crear cuenta" else "Iniciar sesión", color = Tinta, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text("Tu cuenta guarda tus jugadas y tu historial.", color = Suave, fontSize = 13.sp)
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it; mensaje = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Nombre de usuario") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it; mensaje = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Contraseña") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation()
+                )
+                if (creandoCuenta) {
+                    Text("Usa 3–20 caracteres para el usuario y una contraseña de al menos 8 caracteres.", color = Suave, fontSize = 12.sp)
+                }
+                if (mensaje != null) Text(mensaje!!, color = if (mensaje!!.startsWith("Cuenta creada")) Azul else Color(0xFFB45309), fontSize = 13.sp)
+                Button(
+                    onClick = {
+                        if (username.isBlank() || password.isBlank()) {
+                            mensaje = "Escribe tu nombre de usuario y contraseña."
+                        } else {
+                            cargando = true
+                            if (creandoCuenta) {
+                                AuthRepository.register(context, username, password) { result ->
+                                    cargando = false
+                                    result.onSuccess {
+                                        creandoCuenta = false
+                                        password = ""
+                                        mensaje = "Cuenta creada. Ya puedes iniciar sesión."
+                                    }.onFailure { mensaje = it.message ?: "No se pudo crear la cuenta." }
+                                }
+                            } else {
+                                AuthRepository.login(context, username, password) { result ->
+                                    cargando = false
+                                    result.onSuccess(onAuthenticated)
+                                        .onFailure { mensaje = "Usuario o contraseña incorrectos, o no hay conexión." }
+                                }
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !cargando
+                ) {
+                    if (cargando) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                    else Text(if (creandoCuenta) "Crear cuenta" else "Entrar")
+                }
+                TextButton(
+                    onClick = {
+                        creandoCuenta = !creandoCuenta
+                        mensaje = null
+                        password = ""
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (creandoCuenta) "Ya tengo una cuenta · Iniciar sesión" else "No tengo cuenta · Registrarme")
+                }
             }
         }
+        Text("La sesión se guarda cifrada en este teléfono.", Modifier.padding(top = 18.dp), color = Suave, fontSize = 12.sp)
     }
 }
 
