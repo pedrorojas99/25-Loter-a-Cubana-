@@ -149,6 +149,7 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
     var creandoCuenta by remember { mutableStateOf(false) }
     var recuperando by remember { mutableStateOf(false) }
     var codigoEnviado by remember { mutableStateOf(false) }
+    var verificandoRegistro by remember { mutableStateOf(false) }
     var username by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -169,6 +170,7 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
             Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(
                     when {
+                        verificandoRegistro -> "Verifica tu correo"
                         recuperando -> if (codigoEnviado) "Restablecer contraseña" else "Recuperar cuenta"
                         creandoCuenta -> "Crear cuenta"
                         else -> "Iniciar sesión"
@@ -177,14 +179,15 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
                 )
                 Text(
                     when {
+                        verificandoRegistro -> "Escribe el código de 6 dígitos que enviamos a tu correo para activar la cuenta."
                         recuperando -> "Usaremos el correo asociado a tu cuenta."
-                        creandoCuenta -> "Registra un correo real para verificar tu cuenta y recuperarla si olvidas la contraseña."
+                        creandoCuenta -> "Registra un correo real. Lo verificaremos y te servirá para recuperar tu cuenta."
                         else -> "Inicia sesión con tu correo y contraseña desde cualquier teléfono."
                     },
                     color = Suave, fontSize = 13.sp
                 )
 
-                if (!recuperando && creandoCuenta) {
+                if (!recuperando && creandoCuenta && !verificandoRegistro) {
                     OutlinedTextField(
                         value = username,
                         onValueChange = { username = it; mensaje = null },
@@ -201,10 +204,11 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
                     label = { Text("Correo electrónico") },
                     placeholder = { Text("tunombre@correo.com") },
                     singleLine = true,
+                    enabled = !verificandoRegistro && !(recuperando && codigoEnviado),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
                 )
 
-                if (recuperando && codigoEnviado) {
+                if (verificandoRegistro || (recuperando && codigoEnviado)) {
                     OutlinedTextField(
                         value = codigo,
                         onValueChange = { codigo = it.filter(Char::isDigit).take(8); mensaje = null },
@@ -213,6 +217,9 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
+                }
+
+                if (recuperando && codigoEnviado) {
                     OutlinedTextField(
                         value = nuevaPassword,
                         onValueChange = { nuevaPassword = it; mensaje = null },
@@ -221,7 +228,7 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation()
                     )
-                } else if (!recuperando) {
+                } else if (!recuperando && !verificandoRegistro) {
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it; mensaje = null },
@@ -232,16 +239,31 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
                     )
                 }
 
-                if (creandoCuenta && !recuperando) {
+                if (creandoCuenta && !recuperando && !verificandoRegistro) {
                     Text("Usuario: 3–20 caracteres. Contraseña: al menos 8 caracteres.", color = Suave, fontSize = 12.sp)
                 }
-                if (mensaje != null) Text(mensaje!!, color = if (mensaje!!.contains("enviamos") || mensaje!!.contains("actualizada")) Azul else Color(0xFFB45309), fontSize = 13.sp)
+                if (mensaje != null) Text(mensaje!!, color = if (mensaje!!.contains("verificado") || mensaje!!.contains("actualizada") || mensaje!!.contains("enviamos")) Azul else Color(0xFFB45309), fontSize = 13.sp)
 
                 Button(
                     onClick = {
                         val correoValido = android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches()
                         when {
                             !correoValido -> mensaje = "Escribe un correo electrónico válido."
+                            verificandoRegistro && codigo.length !in 6..8 ->
+                                mensaje = "Introduce el código de verificación."
+                            verificandoRegistro -> {
+                                cargando = true
+                                AuthRepository.verifySignupCode(context, email, codigo) { result ->
+                                    cargando = false
+                                    result.onSuccess {
+                                        verificandoRegistro = false
+                                        creandoCuenta = false
+                                        codigo = ""
+                                        password = ""
+                                        mensaje = it
+                                    }.onFailure { mensaje = it.message ?: "El código no es válido o ha caducado." }
+                                }
+                            }
                             recuperando && codigoEnviado && (codigo.length !in 6..8 || nuevaPassword.length < 8) ->
                                 mensaje = "Introduce el código y una contraseña de al menos 8 caracteres."
                             recuperando && !codigoEnviado -> {
@@ -275,9 +297,9 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
                                 AuthRepository.register(context, username, email, password) { result ->
                                     cargando = false
                                     result.onSuccess {
-                                        creandoCuenta = false
-                                        password = ""
-                                        mensaje = it
+                                        verificandoRegistro = true
+                                        codigo = ""
+                                        mensaje = "Te enviamos un código. Revisa también la carpeta de spam."
                                     }.onFailure { mensaje = it.message ?: "No se pudo crear la cuenta." }
                                 }
                             }
@@ -287,7 +309,7 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
                                 AuthRepository.login(context, email, password) { result ->
                                     cargando = false
                                     result.onSuccess(onAuthenticated)
-                                        .onFailure { mensaje = "No se pudo iniciar sesión. Comprueba el correo, la contraseña y la verificación del correo." }
+                                        .onFailure { mensaje = "No se pudo iniciar sesión. Comprueba correo, contraseña y que el correo esté verificado." }
                                 }
                             }
                         }
@@ -298,6 +320,7 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
                     if (cargando) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
                     else Text(
                         when {
+                            verificandoRegistro -> "Verificar correo"
                             recuperando && codigoEnviado -> "Cambiar contraseña"
                             recuperando -> "Enviar código"
                             creandoCuenta -> "Crear cuenta"
@@ -306,7 +329,7 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
                     )
                 }
 
-                if (!recuperando && !creandoCuenta) {
+                if (!recuperando && !creandoCuenta && !verificandoRegistro) {
                     TextButton(
                         onClick = { recuperando = true; codigoEnviado = false; mensaje = null; password = "" },
                         modifier = Modifier.fillMaxWidth()
@@ -315,13 +338,10 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
 
                 TextButton(
                     onClick = {
-                        if (recuperando) {
-                            recuperando = false
-                            codigoEnviado = false
-                            codigo = ""
-                            nuevaPassword = ""
-                        } else {
-                            creandoCuenta = !creandoCuenta
+                        when {
+                            verificandoRegistro -> { verificandoRegistro = false; creandoCuenta = false }
+                            recuperando -> { recuperando = false; codigoEnviado = false; codigo = ""; nuevaPassword = "" }
+                            else -> creandoCuenta = !creandoCuenta
                         }
                         mensaje = null
                         password = ""
@@ -330,6 +350,7 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
                 ) {
                     Text(
                         when {
+                            verificandoRegistro -> "Volver al inicio de sesión"
                             recuperando -> "Volver al inicio de sesión"
                             creandoCuenta -> "Ya tengo una cuenta · Iniciar sesión"
                             else -> "No tengo cuenta · Registrarme"
