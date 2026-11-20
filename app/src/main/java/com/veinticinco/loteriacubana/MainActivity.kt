@@ -241,13 +241,22 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
                 Button(
                     onClick = {
                         if (codigoRecuperacion != null) {
-                            codigoRecuperacion = null
-                            creandoCuenta = false
-                            recuperando = false
-                            codigoEnviado = false
-                            email = ""
-                            password = ""
-                            mensaje = "Cuenta creada. Ya puedes iniciar sesión con tu correo y contraseña."
+                            // El código ya fue mostrado y el usuario confirmó que lo guardó.
+                            // Inicia sesión con las credenciales usadas durante el registro
+                            // y entra directamente a la aplicación sin pedirlas otra vez.
+                            cargando = true
+                            AuthRepository.login(context, email, password) { result ->
+                                cargando = false
+                                result.onSuccess { authenticated ->
+                                    codigoRecuperacion = null
+                                    creandoCuenta = false
+                                    recuperando = false
+                                    codigoEnviado = false
+                                    onAuthenticated(authenticated)
+                                }.onFailure {
+                                    mensaje = "La cuenta está creada, pero no pudimos iniciar la sesión automáticamente. Comprueba tu conexión e inténtalo de nuevo."
+                                }
+                            }
                         } else {
                             val correoValido = android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches()
                             when {
