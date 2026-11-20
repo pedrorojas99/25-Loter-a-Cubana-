@@ -44,7 +44,7 @@ private val Tinta = Color(0xFF263746)
 private val Suave = Color(0xFF718096)
 private val Azul = Color(0xFF648CA6)
 
-private enum class Pantalla { INICIO, ESTADISTICAS, HISTORIAL, BILLETERA, JUGAR }
+private enum class Pantalla { INICIO, ESTADISTICAS, HISTORIAL, BILLETERA, JUGAR, SOPORTE }
 
 private const val CORREO_SOPORTE = "25loteriacubana@gmail.com"
 
@@ -95,6 +95,10 @@ private fun Aplicacion() {
             CircularProgressIndicator(color = Azul)
         }
         session == null -> PantallaAcceso(onAuthenticated = { session = it })
+        else if (BuildConfig.ADMIN_APP) -> AdminSupportPanel(session!!, cerrarSesion = {
+            val current = session
+            if (current != null) AuthRepository.logout(context, current) { session = null }
+        })
         else -> {
             var pantalla by remember { mutableStateOf(Pantalla.INICIO) }
             Scaffold(
@@ -105,7 +109,7 @@ private fun Aplicacion() {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("Hola, ${session!!.username}", Modifier.weight(1f), color = Tinta, fontWeight = FontWeight.SemiBold)
-                        TextButton(onClick = { abrirSoporte(context) }) {
+                        TextButton(onClick = { pantalla = Pantalla.SOPORTE }) {
                             Text("Soporte", color = Azul)
                         }
                         TextButton(onClick = {
@@ -130,6 +134,7 @@ private fun Aplicacion() {
                         Pantalla.HISTORIAL -> Historial(session!!)
                         Pantalla.BILLETERA -> Billetera()
                         Pantalla.JUGAR -> Jugar(session!!, volver = { pantalla = Pantalla.INICIO })
+                        Pantalla.SOPORTE -> SoporteChat(session!!)
                     }
                 }
             }
@@ -866,6 +871,209 @@ private fun Billetera() {
         Text("Seguridad: nunca compartas contraseñas, códigos de verificación ni datos completos de tarjetas en el chat.", color = Suave, fontSize = 12.sp)
     }
 }
+
+
+@Composable
+private fun SoporteChat(session: UserSession) {
+    var conversations by remember { mutableStateOf<List<com.veinticinco.loteriacubana.data.SupportConversation>>(emptyList()) }
+    var selected by remember { mutableStateOf<com.veinticinco.loteriacubana.data.SupportConversation?>(null) }
+    var messages by remember { mutableStateOf<List<com.veinticinco.loteriacubana.data.SupportMessage>>(emptyList()) }
+    var subject by remember { mutableStateOf("") }
+    var draft by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun loadConversations() {
+        busy = true
+        SupabaseRepository.cargarConversacionesSoporte(session) { result ->
+            busy = false
+            result.onSuccess { conversations = it; error = null }
+                .onFailure { error = it.message ?: "No se pudieron cargar tus conversaciones." }
+        }
+    }
+    fun loadMessages(conversation: com.veinticinco.loteriacubana.data.SupportConversation) {
+        selected = conversation
+        busy = true
+        SupabaseRepository.cargarMensajesSoporte(session, conversation.id) { result ->
+            busy = false
+            result.onSuccess { messages = it; error = null }
+                .onFailure { error = it.message ?: "No se pudieron cargar los mensajes." }
+        }
+    }
+    LaunchedEffect(Unit) { loadConversations() }
+
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Centro de soporte", color = Tinta, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text("Conversa directamente con nuestro equipo.", color = Suave, fontSize = 12.sp)
+            }
+            TextButton(onClick = { abrirSoporte(LocalContext.current) }) { Text("Correo", color = Azul) }
+        }
+        if (selected == null) {
+            Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Nueva conversación", color = Tinta, fontWeight = FontWeight.Bold)
+                    OutlinedTextField(value = subject, onValueChange = { subject = it.take(100) },
+                        modifier = Modifier.fillMaxWidth(), label = { Text("¿En qué podemos ayudarte?") },
+                        placeholder = { Text("Ej. Problema al iniciar sesión") }, singleLine = true)
+                    Button(onClick = {
+                        busy = true
+                        SupabaseRepository.crearConversacionSoporte(session, subject) { result ->
+                            busy = false
+                            result.onSuccess { subject = ""; loadMessages(it); loadConversations() }
+                                .onFailure { error = it.message ?: "No se pudo abrir la conversación." }
+                        }
+                    }, enabled = !busy && subject.trim().length >= 3, modifier = Modifier.fillMaxWidth()) {
+                        Text("Abrir chat")
+                    }
+                }
+            }
+            Text("Tus conversaciones", color = Tinta, fontWeight = FontWeight.Bold)
+            if (busy && conversations.isEmpty()) CircularProgressIndicator(color = Azul)
+            if (conversations.isEmpty() && !busy) Text("Todavía no tienes conversaciones. Abre una nueva para escribirnos.", color = Suave, fontSize = 13.sp)
+            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                conversations.forEach { item ->
+                    Card(modifier = Modifier.fillMaxWidth(), onClick = { loadMessages(item) },
+                        colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(item.subject, color = Tinta, fontWeight = FontWeight.SemiBold)
+                                Text(if (item.status == "open") "Abierta" else "Cerrada", color = Suave, fontSize = 12.sp)
+                            }
+                            Text("Ver chat  ›", color = Azul, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        } else {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { selected = null; messages = emptyList(); loadConversations() }) { Text("‹ Conversaciones") }
+                Text(selected!!.subject, Modifier.weight(1f), color = Tinta, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                TextButton(onClick = { selected?.let { loadMessages(it) } }) { Text("Actualizar") }
+            }
+            if (error != null) Text(error!!, color = Color(0xFFB45309), fontSize = 12.sp)
+            Column(Modifier.weight(1f).fillMaxWidth().background(Color.White, RoundedCornerShape(16.dp))
+                .verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (messages.isEmpty() && !busy) Text("Escribe tu primer mensaje para que nuestro equipo pueda ayudarte.", color = Suave, fontSize = 13.sp)
+                messages.forEach { msg ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (msg.senderRole == "user") Arrangement.End else Arrangement.Start) {
+                        Column(Modifier.widthIn(max = 290.dp).background(
+                            if (msg.senderRole == "user") Color(0xFFE7F0F6) else Fondo, RoundedCornerShape(14.dp)
+                        ).padding(11.dp)) {
+                            Text(if (msg.senderRole == "user") "Tú" else "Soporte", color = Azul, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text(msg.body, color = Tinta, fontSize = 14.sp)
+                            Text(msg.createdAt.replace("T", " ").take(16), color = Suave, fontSize = 9.sp)
+                        }
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = draft, onValueChange = { draft = it.take(2000) }, modifier = Modifier.weight(1f),
+                    placeholder = { Text("Escribe tu mensaje…") }, maxLines = 4)
+                Button(onClick = {
+                    busy = true
+                    SupabaseRepository.enviarMensajeSoporte(session, selected!!.id, draft) { result ->
+                        busy = false
+                        result.onSuccess { draft = ""; selected?.let { loadMessages(it) }; loadConversations() }
+                            .onFailure { error = it.message ?: "No se pudo enviar el mensaje." }
+                    }
+                }, enabled = !busy && draft.trim().isNotEmpty()) { Text("Enviar") }
+            }
+            Text("No compartas contraseñas, códigos de recuperación ni datos bancarios.", color = Suave, fontSize = 11.sp)
+        }
+        if (error != null && selected == null) Text(error!!, color = Color(0xFFB45309), fontSize = 12.sp)
+        if (busy && selected != null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Azul)
+    }
+}
+
+@Composable
+private fun AdminSupportPanel(session: UserSession, cerrarSesion: () -> Unit) {
+    var conversations by remember { mutableStateOf<List<com.veinticinco.loteriacubana.data.SupportConversation>>(emptyList()) }
+    var selected by remember { mutableStateOf<com.veinticinco.loteriacubana.data.SupportConversation?>(null) }
+    var messages by remember { mutableStateOf<List<com.veinticinco.loteriacubana.data.SupportMessage>>(emptyList()) }
+    var draft by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun loadInbox() {
+        busy = true
+        SupabaseRepository.cargarConversacionesSoporte(session, admin = true) { result ->
+            busy = false
+            result.onSuccess { conversations = it; error = null }
+                .onFailure { error = it.message ?: "No se pudo cargar la bandeja de soporte." }
+        }
+    }
+    fun loadThread(item: com.veinticinco.loteriacubana.data.SupportConversation) {
+        selected = item
+        busy = true
+        SupabaseRepository.cargarMensajesSoporte(session, item.id) { result ->
+            busy = false
+            result.onSuccess { messages = it; error = null }
+                .onFailure { error = it.message ?: "No se pudo cargar la conversación." }
+        }
+    }
+    LaunchedEffect(Unit) { loadInbox() }
+
+    Column(Modifier.fillMaxSize().background(Fondo).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("25 · Soporte Admin", color = Tinta, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                Text("Bandeja privada de atención al usuario", color = Suave, fontSize = 12.sp)
+            }
+            TextButton(onClick = cerrarSesion) { Text("Salir", color = Azul) }
+        }
+        if (selected == null) {
+            Button(onClick = { loadInbox() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Actualizar bandeja") }
+            if (conversations.isEmpty() && !busy) Text("No hay conversaciones o esta cuenta todavía no tiene permisos de administrador.", color = Suave, fontSize = 13.sp)
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                conversations.forEach { item ->
+                    Card(modifier = Modifier.fillMaxWidth(), onClick = { loadThread(item) },
+                        colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                            Text(item.subject, color = Tinta, fontWeight = FontWeight.SemiBold)
+                            Text("Usuario: " + item.userId.take(8) + " · " + if (item.status == "open") "Abierta" else "Cerrada",
+                                color = Suave, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { selected = null; messages = emptyList(); loadInbox() }) { Text("‹ Bandeja") }
+                Text(selected!!.subject, Modifier.weight(1f), color = Tinta, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                TextButton(onClick = { selected?.let { loadThread(it) } }) { Text("Actualizar") }
+            }
+            Column(Modifier.weight(1f).fillMaxWidth().background(Color.White, RoundedCornerShape(16.dp))
+                .verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                messages.forEach { msg ->
+                    Column(Modifier.fillMaxWidth().background(
+                        if (msg.senderRole == "admin") Color(0xFFE7F0F6) else Fondo, RoundedCornerShape(12.dp)
+                    ).padding(10.dp)) {
+                        Text(if (msg.senderRole == "admin") "Soporte" else "Usuario", color = Azul, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text(msg.body, color = Tinta, fontSize = 14.sp)
+                        Text(msg.createdAt.replace("T", " ").take(16), color = Suave, fontSize = 9.sp)
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = draft, onValueChange = { draft = it.take(2000) }, modifier = Modifier.weight(1f),
+                    placeholder = { Text("Responder al usuario…") }, maxLines = 4)
+                Button(onClick = {
+                    busy = true
+                    SupabaseRepository.enviarMensajeSoporte(session, selected!!.id, draft, admin = true) { result ->
+                        busy = false
+                        result.onSuccess { draft = ""; selected?.let { loadThread(it) }; loadInbox() }
+                            .onFailure { error = it.message ?: "No se pudo enviar la respuesta." }
+                    }
+                }, enabled = !busy && draft.trim().isNotEmpty()) { Text("Enviar") }
+            }
+        }
+        if (error != null) Text(error!!, color = Color(0xFFB45309), fontSize = 12.sp)
+        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Azul)
+    }
+}
+
 
 @Composable
 private fun Sorteo(nombre: String, modifier: Modifier = Modifier) {
