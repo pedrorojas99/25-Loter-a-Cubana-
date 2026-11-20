@@ -23,10 +23,15 @@ jobs:
           gradle-version: "8.9"
       - name: Run public app unit tests
         run: gradle testUsuariosDebugUnitTest
-      - name: Build public users APK
-        run: gradle assembleUsuariosDebug
+      - name: Build public and admin APKs
+        run: gradle assembleUsuariosDebug assembleAdminDebug
       - name: Upload users APK
         uses: actions/upload-artifact@v4
         with:
           name: 25-loteria-cubana-usuarios
           path: app/build/outputs/apk/usuarios/debug/*.apk
+      - name: Upload admin APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: 25-loteria-cubana-admin
+          path: app/build/outputs/apk/admin/debug/*.apk
