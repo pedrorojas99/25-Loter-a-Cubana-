@@ -103,30 +103,66 @@ object AuthRepository {
         }.start()
     }
 
-    fun resetPasswordWithRecoveryCode(
+    fun sendPasswordRecoveryCode(email: String, callback: (Result<String>) -> Unit) {
+        Thread {
+            try {
+                request(
+                    "/auth/v1/recover",
+                    "POST",
+                    JSONObject().put("email", email.trim().lowercase())
+                )
+                mainHandler.post {
+                    callback(Result.success("Si el correo está registrado, recibirás un código de 6 cifras. Revisa también Spam."))
+                }
+            } catch (e: Exception) {
+                mainHandler.post { callback(Result.failure(e)) }
+            }
+        }.start()
+    }
+
+    fun resetPasswordWithEmailCode(
         email: String,
-        recoveryCode: String,
+        code: String,
         newPassword: String,
         callback: (Result<String>) -> Unit
     ) {
         Thread {
             try {
-                val result = request(
-                    "/functions/v1/reset-password-with-code",
+                val verified = request(
+                    "/auth/v1/verify",
                     "POST",
                     JSONObject()
                         .put("email", email.trim().lowercase())
-                        .put("recovery_code", recoveryCode.trim())
-                        .put("new_password", newPassword)
+                        .put("token", code.filter { it.isDigit() })
+                        .put("type", "recovery")
                 )
+                val accessToken = verified.optString("access_token")
+                if (accessToken.isBlank()) {
+                    throw IllegalStateException("El código no es válido o ha caducado. Solicita uno nuevo.")
+                }
+
+                request(
+                    "/auth/v1/user",
+                    "PUT",
+                    JSONObject().put("password", newPassword),
+                    accessToken
+                )
+
+                try {
+                    request("/auth/v1/logout", "POST", JSONObject(), accessToken)
+                } catch (_: Exception) {
+                    // La contraseña ya quedó actualizada; el cierre de la sesión temporal es secundario.
+                }
+
                 mainHandler.post {
-                    callback(Result.success(result.optString(
-                        "message",
-                        "Contraseña actualizada. Ya puedes iniciar sesión en cualquier teléfono."
-                    )))
+                    callback(Result.success("Contraseña actualizada. Ya puedes iniciar sesión con tu nueva contraseña."))
                 }
             } catch (e: Exception) {
-                mainHandler.post { callback(Result.failure(e)) }
+                mainHandler.post {
+                    callback(Result.failure(IllegalStateException(
+                        e.message?.takeIf { it.isNotBlank() } ?: "No se pudo recuperar la cuenta. Revisa el código e inténtalo de nuevo."
+                    )))
+                }
             }
         }.start()
     }
