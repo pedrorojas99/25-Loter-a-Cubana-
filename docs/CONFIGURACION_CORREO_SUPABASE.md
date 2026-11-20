@@ -1,30 +1,46 @@
-# Configurar correo de 25 Lotería Cubana
+# Configurar Gmail para 25 Lotería Cubana
 
-La APK implementa registro con correo, verificación por código, inicio de sesión y recuperación de contraseña mediante OTP de Supabase Auth.
+La recuperación de contraseña utiliza el OTP nativo de Supabase Auth: un código temporal de **6 cifras** enviado por correo. No se utiliza SMS ni un código personal permanente.
 
-## Requisito antes de abrir el registro al público
+## Antes de activar la recuperación por correo
 
-El SMTP predeterminado de Supabase no es para producción: solo entrega correos a direcciones autorizadas del equipo y tiene límites muy bajos. Para enviar códigos a cualquier usuario hay que conectar un proveedor SMTP externo. Elegir un plan gratuito que cubra el volumen esperado; no activar planes de pago.
+El SMTP predeterminado de Supabase no es un servicio de entrega general: en proyectos alojados limita los destinatarios y la frecuencia. Para enviar a cualquier usuario se debe configurar SMTP personalizado. En este proyecto se utilizará la cuenta oficial:
 
-## Configuración en Supabase
+- Remitente: `25loteriacubana@gmail.com`
+- Servidor SMTP de Gmail: `smtp.gmail.com`
+- Puerto: `465` con SSL/TLS, o `587` con STARTTLS
+- Usuario SMTP: la dirección completa de Gmail
+- Contraseña SMTP: una **contraseña de aplicación de Google**, nunca la contraseña normal de Gmail
 
-1. Abre el proyecto `pnnujsvixsglydhafzih` en Supabase Dashboard.
-2. Ve a **Project Settings / Authentication / SMTP Settings** (la ubicación exacta puede variar).
-3. Crea una cuenta en un proveedor SMTP compatible y copia host, puerto, usuario, contraseña SMTP y dirección remitente verificada.
-4. Activa **Custom SMTP** y guarda esos datos en el panel seguro de Supabase. No los guardes en GitHub, APK ni código fuente.
-5. En **Authentication / Email Templates**, configura:
-   - **Confirm signup**: asunto `Código para activar tu cuenta · 25 Lotería Cubana`; pega el contenido de `supabase/templates/confirmation.html`.
-   - **Reset password**: asunto `Código para recuperar tu cuenta · 25 Lotería Cubana`; pega el contenido de `supabase/templates/recovery.html`.
-6. Comprueba que ambos mensajes muestran `{{ .Token }}` (OTP), no solo `{{ .ConfirmationURL }}`.
-7. Mantén activada la confirmación de correo y limita la frecuencia de reenvío para evitar abuso.
+Google exige activar la verificación en dos pasos para crear una contraseña de aplicación. Si Google no ofrece esa opción para la cuenta, no se podrá completar este método con Gmail SMTP.
 
-## Pruebas obligatorias
+## Configuración segura en Supabase
 
-- Registrar una cuenta con un correo real que no pertenezca al equipo del proyecto.
-- Confirmar que llega el código y que la app acepta el OTP de registro.
-- Iniciar sesión con ese correo y contraseña.
-- Solicitar recuperación, confirmar que llega un OTP distinto y cambiar la contraseña.
-- Cerrar sesión e iniciar en otro teléfono con la misma cuenta.
-- Comprobar que los datos de cuenta consultados desde la nube siguen asociados al mismo usuario.
+1. Abre [SMTP Settings de este proyecto](https://supabase.com/dashboard/project/pnnujsvixsglydhafzih/auth/smtp).
+2. Activa **Enable Custom SMTP**.
+3. Introduce el host `smtp.gmail.com`, puerto `465` (SSL/TLS), usuario `25loteriacubana@gmail.com`, la contraseña de aplicación y el remitente verificado.
+4. Guarda la configuración. Los secretos se introducen únicamente en el panel de Supabase; nunca los envíes por el chat ni los guardes en GitHub o dentro de la APK.
+5. En **Authentication → Email Templates → Reset Password**, configura el mensaje para mostrar el OTP con `{{ .Token }}`. No uses solamente `{{ .ConfirmationURL }}`, porque la APK solicita que el usuario escriba el código.
+6. En **Authentication → Rate Limits**, conserva límites contra reenvíos abusivos.
+7. En la configuración de Auth, fija la longitud de OTP de correo en **6** y su vencimiento en **600 segundos (10 minutos)**, si esos campos aparecen en el panel. La interfaz de la APK espera exactamente seis cifras.
 
-No publicar la APK para usuarios reales hasta que estas pruebas pasen. El repositorio no contiene contraseñas SMTP ni claves privadas.
+## Cómo funciona en la APK
+
+1. El usuario toca **Olvidé mi contraseña** e introduce el correo.
+2. Supabase envía un OTP al buzón correspondiente.
+3. El usuario introduce las seis cifras y una contraseña nueva.
+4. La APK verifica el OTP con tipo `recovery` y actualiza la contraseña usando la sesión temporal emitida por Supabase.
+5. El OTP es de un solo uso y expira según la configuración de Auth.
+
+El correo no debe confundirse con una dirección verificada al registrarse: el registro actual crea la cuenta sin confirmación de correo. La recuperación sí exige acceso al buzón en ese momento. Más adelante conviene añadir confirmación de correo al registro antes de abrir la aplicación al público.
+
+## Pruebas obligatorias antes de retirar el mecanismo anterior
+
+- Configurar SMTP y confirmar que el correo llega a una dirección externa al equipo del proyecto.
+- Solicitar recuperación desde la APK y recibir un código de seis cifras.
+- Verificar que un código incorrecto y uno vencido son rechazados.
+- Confirmar que el mismo código no se puede reutilizar.
+- Cambiar la contraseña y entrar con la nueva desde otro teléfono.
+- Revisar que la cuenta, las jugadas y el historial continúan asociados al mismo usuario.
+
+**Importante:** hasta completar estas pruebas, se conserva temporalmente el mecanismo anterior en el servidor para no bloquear cuentas existentes. No se ha eliminado ninguna tabla ni función de recuperación antigua todavía.
