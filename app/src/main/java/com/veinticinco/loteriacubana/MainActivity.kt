@@ -875,6 +875,7 @@ private fun Billetera() {
 
 @Composable
 private fun SoporteChat(session: UserSession) {
+    val context = LocalContext.current
     var conversations by remember { mutableStateOf<List<com.veinticinco.loteriacubana.data.SupportConversation>>(emptyList()) }
     var selected by remember { mutableStateOf<com.veinticinco.loteriacubana.data.SupportConversation?>(null) }
     var messages by remember { mutableStateOf<List<com.veinticinco.loteriacubana.data.SupportMessage>>(emptyList()) }
@@ -908,7 +909,7 @@ private fun SoporteChat(session: UserSession) {
                 Text("Centro de soporte", color = Tinta, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                 Text("Conversa directamente con nuestro equipo.", color = Suave, fontSize = 12.sp)
             }
-            TextButton(onClick = { abrirSoporte(LocalContext.current) }) { Text("Correo", color = Azul) }
+            TextButton(onClick = { abrirSoporte(context) }) { Text("Correo", color = Azul) }
         }
         if (selected == null) {
             Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
