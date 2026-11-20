@@ -19,6 +19,23 @@ data class ResultadoPublico(
 
 data class JugadaRemota(val fecha: String, val selecciones: List<String>)
 
+
+data class SupportConversation(
+    val id: String,
+    val subject: String,
+    val status: String,
+    val userId: String,
+    val lastMessageAt: String
+)
+
+data class SupportMessage(
+    val id: String,
+    val conversationId: String,
+    val senderRole: String,
+    val body: String,
+    val createdAt: String
+)
+
 object SupabaseRepository {
     private val mainHandler = Handler(Looper.getMainLooper())
     private const val PAGE_SIZE = 1000
@@ -300,5 +317,112 @@ object SupabaseRepository {
             }
         }.start()
     }
+
+
+    private fun supportRequest(
+        path: String,
+        method: String,
+        session: UserSession,
+        payload: JSONObject? = null,
+        prefer: String? = null
+    ): String {
+        val connection = (URL(BuildConfig.SUPABASE_URL.trimEnd('/') + path).openConnection() as HttpURLConnection).apply {
+            requestMethod = method
+            connectTimeout = 15000
+            readTimeout = 20000
+            doOutput = payload != null
+            setRequestProperty("apikey", BuildConfig.SUPABASE_PUBLISHABLE_KEY)
+            setRequestProperty("Authorization", "Bearer ${session.accessToken}")
+            setRequestProperty("Accept", "application/json")
+            if (payload != null) setRequestProperty("Content-Type", "application/json")
+            if (prefer != null) setRequestProperty("Prefer", prefer)
+        }
+        try {
+            if (payload != null) connection.outputStream.bufferedWriter(Charsets.UTF_8).use { it.write(payload.toString()) }
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            if (status !in 200..299) {
+                val message = runCatching { JSONObject(body).optString("message") }.getOrDefault("")
+                throw IllegalStateException(message.ifBlank { "Error de soporte (HTTP $status)." })
+            }
+            return body
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    fun crearConversacionSoporte(session: UserSession, subject: String, callback: (Result<SupportConversation>) -> Unit) {
+        Thread {
+            try {
+                require(subject.trim().length in 3..100) { "El asunto debe tener entre 3 y 100 caracteres." }
+                val body = supportRequest(
+                    "/rest/v1/support_conversations?select=id,subject,status,user_id,last_message_at",
+                    "POST", session, JSONObject().put("subject", subject.trim()), "return=representation"
+                )
+                val row = JSONArray(body).getJSONObject(0)
+                val item = SupportConversation(row.getString("id"), row.getString("subject"), row.getString("status"), row.getString("user_id"), row.getString("last_message_at"))
+                mainHandler.post { callback(Result.success(item)) }
+            } catch (e: Exception) { mainHandler.post { callback(Result.failure(e)) } }
+        }.start()
+    }
+
+    fun cargarConversacionesSoporte(session: UserSession, admin: Boolean = false, callback: (Result<List<SupportConversation>>) -> Unit) {
+        Thread {
+            try {
+                val body = supportRequest(
+                    "/rest/v1/support_conversations?select=id,subject,status,user_id,last_message_at&order=last_message_at.desc&limit=100",
+                    "GET", session
+                )
+                val array = JSONArray(body)
+                val items = (0 until array.length()).map { i ->
+                    val row = array.getJSONObject(i)
+                    SupportConversation(row.getString("id"), row.optString("subject"), row.optString("status"), row.optString("user_id"), row.optString("last_message_at"))
+                }
+                mainHandler.post { callback(Result.success(items)) }
+            } catch (e: Exception) { mainHandler.post { callback(Result.failure(e)) } }
+        }.start()
+    }
+
+    fun cargarMensajesSoporte(session: UserSession, conversationId: String, callback: (Result<List<SupportMessage>>) -> Unit) {
+        Thread {
+            try {
+                val safeId = java.net.URLEncoder.encode(conversationId, "UTF-8")
+                val body = supportRequest(
+                    "/rest/v1/support_messages?select=id,conversation_id,sender_role,body,created_at&conversation_id=eq.$safeId&order=created_at.asc&limit=300",
+                    "GET", session
+                )
+                val array = JSONArray(body)
+                val items = (0 until array.length()).map { i ->
+                    val row = array.getJSONObject(i)
+                    SupportMessage(row.getString("id"), row.getString("conversation_id"), row.optString("sender_role", "user"), row.optString("body"), row.optString("created_at"))
+                }
+                mainHandler.post { callback(Result.success(items)) }
+            } catch (e: Exception) { mainHandler.post { callback(Result.failure(e)) } }
+        }.start()
+    }
+
+    fun enviarMensajeSoporte(
+        session: UserSession,
+        conversationId: String,
+        message: String,
+        admin: Boolean = false,
+        callback: (Result<Unit>) -> Unit
+    ) {
+        Thread {
+            try {
+                val clean = message.trim()
+                require(clean.length in 1..2000) { "El mensaje debe tener entre 1 y 2000 caracteres." }
+                supportRequest(
+                    "/rest/v1/support_messages",
+                    "POST", session,
+                    JSONObject().put("conversation_id", conversationId).put("body", clean).put("sender_role", if (admin) "admin" else "user"),
+                    "return=minimal"
+                )
+                mainHandler.post { callback(Result.success(Unit)) }
+            } catch (e: Exception) { mainHandler.post { callback(Result.failure(e)) } }
+        }.start()
+    }
+
 
 }
