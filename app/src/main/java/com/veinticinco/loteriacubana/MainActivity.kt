@@ -162,7 +162,7 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
             cargando = false
             result.onSuccess {
                 codigoEnviado = true
-                mensaje = "Si el correo está registrado, recibirás un código de 6 cifras. Revisa Spam."
+                mensaje = "Si el correo está registrado, recibirás un código de 8 cifras. Revisa Spam."
             }.onFailure {
                 mensaje = it.message ?: "No se pudo enviar el código. Inténtalo más tarde."
             }
@@ -190,7 +190,7 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
                 )
                 Text(
                     when {
-                        recuperando -> "Te enviaremos un código temporal de 6 cifras al correo de tu cuenta. Solo podrás usarlo una vez."
+                        recuperando -> "Te enviaremos un código temporal de 8 cifras al correo de tu cuenta. Solo podrás usarlo una vez."
                         creandoCuenta -> "Crea tu cuenta con un correo al que tengas acceso y una contraseña segura."
                         else -> "Inicia sesión con tu correo y contraseña desde cualquier teléfono."
                     },
@@ -221,10 +221,10 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
                 if (recuperando && codigoEnviado) {
                     OutlinedTextField(
                         value = codigo,
-                        onValueChange = { codigo = it.filter(Char::isDigit).take(6); mensaje = null },
+                        onValueChange = { codigo = it.filter(Char::isDigit).take(8); mensaje = null },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Código de 6 cifras enviado a tu correo") },
-                        placeholder = { Text("000000") },
+                        label = { Text("Código de 8 cifras enviado a tu correo") },
+                        placeholder = { Text("00000000") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
@@ -263,8 +263,8 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
                         when {
                             !correoValido -> mensaje = "Escribe un correo electrónico válido."
                             recuperando && !codigoEnviado -> solicitarCodigo()
-                            recuperando && (codigo.length != 6 || nuevaPassword.length < 8) ->
-                                mensaje = "Introduce el código de 6 cifras y una contraseña de al menos 8 caracteres."
+                            recuperando && (codigo.length != 8 || nuevaPassword.length < 8) ->
+                                mensaje = "Introduce el código de 8 cifras y una contraseña de al menos 8 caracteres."
                             recuperando -> {
                                 cargando = true
                                 AuthRepository.resetPasswordWithEmailCode(email, codigo, nuevaPassword) { result ->
