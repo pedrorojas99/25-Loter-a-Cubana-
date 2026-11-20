@@ -95,7 +95,7 @@ private fun Aplicacion() {
             CircularProgressIndicator(color = Azul)
         }
         session == null -> PantallaAcceso(onAuthenticated = { session = it })
-        else if (BuildConfig.ADMIN_APP) -> AdminSupportPanel(session!!, cerrarSesion = {
+        BuildConfig.ADMIN_APP -> AdminSupportPanel(session!!, cerrarSesion = {
             val current = session
             if (current != null) AuthRepository.logout(context, current) { session = null }
         })
