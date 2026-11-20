@@ -1,6 +1,10 @@
 package com.veinticinco.loteriacubana
 
 import android.os.Bundle
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -41,6 +45,20 @@ private val Suave = Color(0xFF718096)
 private val Azul = Color(0xFF648CA6)
 
 private enum class Pantalla { INICIO, ESTADISTICAS, HISTORIAL, BILLETERA, JUGAR }
+
+private const val CORREO_SOPORTE = "25loteriacubana@gmail.com"
+
+private fun abrirSoporte(context: Context) {
+    val intent = Intent(Intent.ACTION_SENDTO).apply {
+        data = Uri.parse("mailto:$CORREO_SOPORTE")
+        putExtra(Intent.EXTRA_SUBJECT, "Soporte - 25 Lotería Cubana")
+    }
+    try {
+        context.startActivity(Intent.createChooser(intent, "Enviar correo a soporte"))
+    } catch (_: Exception) {
+        Toast.makeText(context, "No hay una aplicación de correo configurada en este teléfono.", Toast.LENGTH_LONG).show()
+    }
+}
 private enum class OperacionBilletera { DEPOSITO, RETIRO }
 private enum class TipoJugada(val etiqueta: String, val cifras: Int) {
     NUMERO("Fijo", 2), CENTENA("Centena", 3)
@@ -87,6 +105,9 @@ private fun Aplicacion() {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("Hola, ${session!!.username}", Modifier.weight(1f), color = Tinta, fontWeight = FontWeight.SemiBold)
+                        TextButton(onClick = { abrirSoporte(context) }) {
+                            Text("Soporte", color = Azul)
+                        }
                         TextButton(onClick = {
                             val current = session
                             if (current != null) AuthRepository.logout(context, current) { session = null }
@@ -351,6 +372,9 @@ private fun PantallaAcceso(onAuthenticated: (UserSession) -> Unit) {
             }
         }
         Text("Tu sesión se guarda cifrada en este teléfono. Puedes usar tu correo para entrar desde otro móvil.", Modifier.padding(top = 18.dp), color = Suave, fontSize = 12.sp)
+        TextButton(onClick = { abrirSoporte(context) }) {
+            Text("Contactar soporte · $CORREO_SOPORTE", color = Azul, fontSize = 12.sp)
+        }
     }
 }
 
