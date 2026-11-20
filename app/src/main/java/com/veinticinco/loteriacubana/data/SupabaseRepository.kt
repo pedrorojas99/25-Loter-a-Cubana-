@@ -173,7 +173,7 @@ object SupabaseRepository {
                         "/rest/v1/lottery_draws?select=draw_date,game,period,winning_number,fireball" +
                         "&verified=eq.true&game=eq.PICK_3"
                     endpoint += if (!fecha.isNullOrBlank()) "&draw_date=eq.$fecha" else "&draw_date=gte.2025-01-01"
-                    endpoint += "&order=draw_date.desc,published_at.desc,game.asc,period.asc&limit=$PAGE_SIZE"
+                    endpoint += "&order=draw_date.desc,published_at.desc,game.asc,period.asc&limit=$PAGE_SIZE&offset=$from"
 
                     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                         requestMethod = "GET"
@@ -182,8 +182,6 @@ object SupabaseRepository {
                         setRequestProperty("apikey", BuildConfig.SUPABASE_PUBLISHABLE_KEY)
                         setRequestProperty("Authorization", "Bearer ${BuildConfig.SUPABASE_PUBLISHABLE_KEY}")
                         setRequestProperty("Accept", "application/json")
-                        setRequestProperty("Range-Unit", "items")
-                        setRequestProperty("Range", "$from-${from + PAGE_SIZE - 1}")
                     }
                     try {
                         val status = connection.responseCode
